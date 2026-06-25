@@ -187,7 +187,13 @@ void matrix_read_rows_on_col(uint8_t current_col, matrix_row_t row_shifter) {
     bool    changed       = false;
 
     do {
-        adcConvert(&ADCD1, &adcgrpcfg, samples, ADC_GRP_BUF_DEPTH);
+        // Bail out on ADC failure instead of processing stale samples from the
+        // previous column (samples[] is static). Leaving the column untouched
+        // avoids phantom key state changes caused by EMI/bus faults.
+        if (adcConvert(&ADCD1, &adcgrpcfg, samples, ADC_GRP_BUF_DEPTH) != MSG_OK) {
+            changed = false;
+            break;
+        }
 
         uint8_t row_value_recheck = 0;
         for (uint8_t row_index = 0; row_index < MATRIX_ROWS; row_index++) {

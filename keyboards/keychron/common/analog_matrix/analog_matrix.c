@@ -154,7 +154,18 @@ static uint8_t convert_to_travel(uint8_t row, uint8_t col, uint16_t value) {
     travel = (uint16_t)((TRAVEL_POLYNOMIAL(x) - TRAVEL_POLY_REF_ZERO) * scale_factor[row][col] * TRAVEL_SCALE + 0.5f);
     if (travel > (FULL_TRAVEL_UNIT + 1) * TRAVEL_SCALE - 1) travel = (FULL_TRAVEL_UNIT + 1) * TRAVEL_SCALE - 1;
 
-    return travel & 0xFF;
+    // Saturate to the uint8_t return range instead of masking with 0xFF, which
+    // would silently wrap if FULL_TRAVEL_UNIT/TRAVEL_SCALE ever grow past 255.
+    if (travel > UINT8_MAX) travel = UINT8_MAX;
+    return (uint8_t)travel;
+}
+
+// Scale a travel/sensitivity value by TRAVEL_SCALE, saturating to uint8_t.
+// Necessary because rpd_trig_sen is a 6-bit field (up to 63) and 63*TRAVEL_SCALE
+// exceeds 255, which would otherwise wrap when stored back into a uint8_t.
+static inline uint8_t scale_travel_u8(uint8_t v) {
+    uint16_t scaled = (uint16_t)v * TRAVEL_SCALE;
+    return scaled > UINT8_MAX ? UINT8_MAX : (uint8_t)scaled;
 }
 
 void update_key_config(uint8_t row, uint8_t col) {
@@ -200,11 +211,11 @@ void update_key_config(uint8_t row, uint8_t col) {
     else
         p_key->rpd_trig_sen_rls = p_key_cfg->rpd_trig_sen_deact;
 
-    /* Scale by TRAVEL_SCALE */
-    p_key->regular.actn_pt *= TRAVEL_SCALE;
-    p_key->regular.deactn_pt *= TRAVEL_SCALE;
-    p_key->rpd_trig_sen *= TRAVEL_SCALE;
-    p_key->rpd_trig_sen_rls *= TRAVEL_SCALE;
+    /* Scale by TRAVEL_SCALE (saturating to uint8_t to avoid silent overflow) */
+    p_key->regular.actn_pt   = scale_travel_u8(p_key->regular.actn_pt);
+    p_key->regular.deactn_pt = scale_travel_u8(p_key->regular.deactn_pt);
+    p_key->rpd_trig_sen      = scale_travel_u8(p_key->rpd_trig_sen);
+    p_key->rpd_trig_sen_rls  = scale_travel_u8(p_key->rpd_trig_sen_rls);
 
     // Update advance mode information
     if (p_key_cfg->adv_mode == AKM_DKS && p_key_cfg->okmc_idx < OKMC_COUNT) {
@@ -244,8 +255,16 @@ static inline void update_scale_factor(uint8_t row, uint8_t col) {
     calibrated_value_t *p_calib = &calib_values[row][col];
 
     if (calibrated & CALI_FULL_TRAVEL) {
-        int16_t offset      = p_calib->zero_travel - REF_ZERO_TRAVEL;
-        uint16_t x          = p_calib->full_travel - offset;
+        int16_t offset   = p_calib->zero_travel - REF_ZERO_TRAVEL;
+        // Compute x in a signed 32-bit type and bound it to the polynomial's
+        // valid domain. A bad offset/full_travel pair could otherwise underflow
+        // the uint16_t subtraction and feed a garbage x into the polynomial.
+        int32_t x_signed = (int32_t)p_calib->full_travel - offset;
+        if (x_signed < 0 || x_signed > REF_ZERO_TRAVEL) {
+            scale_factor[row][col] = 1.0f;
+            return;
+        }
+        uint16_t x = (uint16_t)x_signed;
 
         float    full_travel = (TRAVEL_POLYNOMIAL(x) - TRAVEL_POLY_REF_ZERO);
         if (full_travel > 1.0f) {
@@ -275,10 +294,13 @@ void analog_matrix_eeprom_update(const void *buf, void *addr, size_t len) {
 // Removed save_calibration_value as it is now handled asynchronously
 
 static void save_calibration_values(void) {
-    // Save to external EEPROM
+    // Save to external EEPROM. Only mark the flag as committed once the I2C
+    // write actually succeeds, otherwise keep eeprom_calibrated out of sync so
+    // the next save retries instead of silently dropping the update.
     if (eeprom_calibrated != calibrated) {
-        eeprom_calibrated = calibrated;
-        he_eeprom_write_block(&calibrated, (void *)(EXTERNAL_EEPROM_OFFSET + OFFSET_CALIBRATION), 1);
+        if (he_eeprom_write_block(&calibrated, (void *)(EXTERNAL_EEPROM_OFFSET + OFFSET_CALIBRATION), 1)) {
+            eeprom_calibrated = calibrated;
+        }
     }
 
     he_eeprom_write_block(saved_calib_values, (void *)(EXTERNAL_EEPROM_OFFSET + OFFSET_CALIBRATED_DATA_START), sizeof(saved_calib_values));
@@ -500,12 +522,16 @@ void auto_caliration_check(uint8_t row, uint8_t col, uint16_t value) {
 
                         p->value.zero_travel = avg_val;
 
-                        // Update confidence
-                        if (avg_val - p->value.full_travel > 1100) {
+                        // Update confidence. Use a signed delta so that an
+                        // anomalous avg_val < full_travel does not underflow the
+                        // unsigned subtraction into a huge value and falsely
+                        // boost confidence (committing corrupt calibration).
+                        int32_t travel_delta = (int32_t)avg_val - (int32_t)p->value.full_travel;
+                        if (travel_delta > 1100) {
                             p->confidence += p->calibrated ? 12 : 6;
-                        } else if (avg_val - p->value.full_travel > 1000) {
+                        } else if (travel_delta > 1000) {
                             p->confidence += p->calibrated ? 4 : 3;
-                        } else if (avg_val - p->value.full_travel > 900) {
+                        } else if (travel_delta > 900) {
                             p->confidence += p->calibrated ? 3 : 2;
                         }
                     }
@@ -593,39 +619,45 @@ void analog_matrix_eeconfig_init(void) {
     memset(calib_values, 0, sizeof(calib_values));
     memset(saved_calib_values, 0, sizeof(saved_calib_values));
 
+    bool i2c_fallback = false;
     if (calibrated) {
         memcpy(saved_calib_values, buf + OFFSET_CALIBRATED_DATA_START, sizeof(saved_calib_values));
     } else {
         uint32_t magic;
         if (!he_eeprom_read_block(&magic, 0, 4)) {
-            // I2C read failed, fallback to defaults
-            calibration_validate();
-            update_default_travel();
-            return;
-        }
-
-        if (magic != VENDOR_ID) {
+            // I2C read failed, fallback to defaults (still run the common
+            // finalization below so calib_values/scale_factor/cali_state get
+            // initialized and buf is freed).
+            calibrated    = 0;
+            i2c_fallback  = true;
+        } else if (magic != VENDOR_ID) {
             he_eeprom_driver_erase();
             magic = VENDOR_ID;
             he_eeprom_write_block(&magic, 0, 4);
             // cali_state = CALIB_ZERO_TRAVEL;
         } else {
             if (!he_eeprom_read_block(&calibrated, (void *)(EXTERNAL_EEPROM_OFFSET + OFFSET_CALIBRATION), 1)) {
-                calibration_validate();
-                update_default_travel();
-                return;
-            }
-            if (calibrated) {
+                calibrated   = 0;
+                i2c_fallback = true;
+            } else if (calibrated) {
                 if (!he_eeprom_read_block(saved_calib_values, (void *)(EXTERNAL_EEPROM_OFFSET + OFFSET_CALIBRATED_DATA_START), sizeof(calib_values))) {
-                    calibration_validate();
-                    update_default_travel();
-                    return;
+                    calibrated   = 0;
+                    i2c_fallback = true;
+                } else {
+                    // Save to emulated EEPROM
+                    analog_matrix_eeprom_update(&calibrated, OFFSET_CALIBRATION, 1);
+                    analog_matrix_eeprom_update(saved_calib_values, (uint8_t *)OFFSET_CALIBRATED_DATA_START, sizeof(saved_calib_values));
                 }
-                // Save to emulated EEPROM
-                analog_matrix_eeprom_update(&calibrated, OFFSET_CALIBRATION, 1);
-                analog_matrix_eeprom_update(saved_calib_values, (uint8_t *)OFFSET_CALIBRATED_DATA_START, sizeof(saved_calib_values));
             }
         }
+    }
+
+    if (i2c_fallback) {
+        // I2C unavailable at cold boot: seed sane defaults into saved_calib_values
+        // before the shared finalization below copies them into calib_values and
+        // recomputes scale factors.
+        calibration_validate();
+        update_default_travel();
     }
 
     // Reset to default if calibrated data is invalid

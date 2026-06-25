@@ -97,17 +97,19 @@ void he_eeprom_driver_init(void) {
 #endif
 }
 
-void he_eeprom_driver_erase(void) {
+bool he_eeprom_driver_erase(void) {
 
 #if defined(CONSOLE_ENABLE) && defined(DEBUG_EEPROM_OUTPUT)
     uint32_t start = timer_read32();
 #endif
 
+    bool    ok = true;
     uint8_t buf[EXTERNAL_EEPROM_PAGE_SIZE];
     memset(buf, 0x00, EXTERNAL_EEPROM_PAGE_SIZE);
     for (uint32_t addr = 0; addr < EXTERNAL_EEPROM_BYTE_COUNT; addr += EXTERNAL_EEPROM_PAGE_SIZE) {
-        he_eeprom_write_block(buf, (void *)(uintptr_t)addr, EXTERNAL_EEPROM_PAGE_SIZE);
+        if (!he_eeprom_write_block(buf, (void *)(uintptr_t)addr, EXTERNAL_EEPROM_PAGE_SIZE)) ok = false;
     }
+    return ok;
 }
 
 bool he_eeprom_read_block(void *buf, const void *addr, size_t len) {
@@ -119,11 +121,19 @@ bool he_eeprom_read_block(void *buf, const void *addr, size_t len) {
     return i2c_receive(EXTERNAL_EEPROM_I2C_ADDRESS((uintptr_t)addr), buf, len, 100) == I2C_STATUS_SUCCESS;
 }
 
-void he_eeprom_write_block(const void *buf, void *addr, size_t len) {
+/*
+ * NOTE (CPU budget / jitter): the per-page wait_ms(EXTERNAL_EEPROM_WRITE_TIME)
+ * below is mandated by the EEPROM's internal write cycle and cannot be removed
+ * without risking data corruption. It is therefore the caller's responsibility
+ * to invoke this function only outside the time-critical matrix scan (i.e. on
+ * explicit calibration save or while idle), never from the hot scan path.
+ */
+bool he_eeprom_write_block(const void *buf, void *addr, size_t len) {
 
     uint8_t   complete_packet[EXTERNAL_EEPROM_ADDRESS_SIZE + EXTERNAL_EEPROM_PAGE_SIZE];
     uint8_t * read_buf    = (uint8_t *)buf;
     uintptr_t target_addr = (uintptr_t)addr;
+    bool      ok          = true;
 
 #if defined(EXTERNAL_EEPROM_WP_PIN)
     setPinOutput(EXTERNAL_EEPROM_WP_PIN);
@@ -142,7 +152,9 @@ void he_eeprom_write_block(const void *buf, void *addr, size_t len) {
             complete_packet[EXTERNAL_EEPROM_ADDRESS_SIZE + i] = read_buf[i];
         }
 
-        i2c_transmit(EXTERNAL_EEPROM_I2C_ADDRESS((uintptr_t)target_addr), complete_packet, EXTERNAL_EEPROM_ADDRESS_SIZE + write_length, 100);
+        if (i2c_transmit(EXTERNAL_EEPROM_I2C_ADDRESS((uintptr_t)target_addr), complete_packet, EXTERNAL_EEPROM_ADDRESS_SIZE + write_length, 100) != I2C_STATUS_SUCCESS) {
+            ok = false;
+        }
         wait_ms(EXTERNAL_EEPROM_WRITE_TIME);
 
         read_buf += write_length;
@@ -155,4 +167,6 @@ void he_eeprom_write_block(const void *buf, void *addr, size_t len) {
     writePin(EXTERNAL_EEPROM_WP_PIN, 1);
     setPinInputHigh(EXTERNAL_EEPROM_WP_PIN);
 #endif
+
+    return ok;
 }
