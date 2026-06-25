@@ -113,6 +113,11 @@ void profile_init(bool reset) {
             profile_reset(i);
     } else {
         uint8_t *buf = (uint8_t *)malloc(EECONFIG_SIZE_ANALOG_MATRIX);
+        if (!buf) {
+            for (uint8_t i = 0; i < PROFILE_COUNT; i++)
+                profile_reset(i);
+            return;
+        }
         memset(buf, 0, EECONFIG_SIZE_ANALOG_MATRIX);
 
         eeprom_read_block(buf, (void *)EECONFIG_BASE_ANALOG_MATRIX, EECONFIG_SIZE_ANALOG_MATRIX);
@@ -129,9 +134,9 @@ void profile_init(bool reset) {
             if (profile[i].global.mode == 0) profile[i].global.mode = profile_gobal_mode[i]; // global mode can't be 0
 
             // Resotre to default if not in valid range
-            if (profile[i].global.act_pt == 0 || profile[i].global.act_pt > 40) profile[i].global.act_pt = DEFAULT_ACTUATION_POINT;
+            if (profile[i].global.act_pt == 0 || profile[i].global.act_pt > 39) profile[i].global.act_pt = DEFAULT_ACTUATION_POINT;
             if (profile[i].global.rpd_trig_sen == 0 || profile[i].global.rpd_trig_sen > 39) profile[i].global.rpd_trig_sen = DEFAULT_RAPID_TRIGGER_SENSITIVITY;
-            if (profile[i].global.rpd_trig_sen_deact == 0 || profile[i].global.rpd_trig_sen > 39) profile[i].global.rpd_trig_sen_deact = profile[i].global.rpd_trig_sen;
+            if (profile[i].global.rpd_trig_sen_deact == 0 || profile[i].global.rpd_trig_sen_deact > 39) profile[i].global.rpd_trig_sen_deact = profile[i].global.rpd_trig_sen;
         }
 
         free(buf);
@@ -150,7 +155,7 @@ uint8_t profile_get_current_index(void) {
     return current_profile_index;
 }
 
-bool profile_select(uint8_t prof_idx, bool indication) {
+bool profile_select(uint8_t prof_idx, bool indication, bool save_eeprom) {
     if (prof_idx >= PROFILE_COUNT) return false;
 
     if (prof_idx != current_profile_index) {
@@ -160,8 +165,10 @@ bool profile_select(uint8_t prof_idx, bool indication) {
         analog_matrix_clear();
         update_travel_configs();
 
-        eeprom_update_dword(EECONFIG_KEYBOARD, (EECONFIG_KB_DATA_VERSION));
-        analog_matrix_eeprom_update(&prof_idx, (void *)OFFSET_CURRENT_PROFILE, 1);
+        if (save_eeprom) {
+            eeprom_update_dword(EECONFIG_KEYBOARD, (EECONFIG_KB_DATA_VERSION));
+            analog_matrix_eeprom_update(&prof_idx, (void *)OFFSET_CURRENT_PROFILE, 1);
+        }
         analog_matrix_clear_advance_keys();
     }
     if (indication) {
@@ -179,7 +186,7 @@ bool profile_select(uint8_t prof_idx, bool indication) {
 }
 
 bool profile_get_raw_data(uint8_t prof_idx, uint16_t offset, uint8_t size, uint8_t *data) {
-    if (prof_idx >= PROFILE_COUNT || offset + size > sizeof(profile)) return false;
+    if (prof_idx >= PROFILE_COUNT || offset >= PROFILE_SIZE) return false;
 
     memset(data, 0, size);
 
@@ -190,10 +197,10 @@ bool profile_get_raw_data(uint8_t prof_idx, uint16_t offset, uint8_t size, uint8
 }
 
 bool profile_set_traval(uint8_t prof_idx, uint8_t mode, uint8_t act_pt, uint8_t sens, uint8_t rls_sens, bool global, uint32_t row[]) {
-    analog_matrix_profile_t *prof = profile_get(prof_idx);
-
     // Check validity
-    if (prof_idx >= PROFILE_COUNT || mode > AKM_RAPID || act_pt < 0 || act_pt > 39 || (global && mode == AKM_GLOBAL)) return false;
+    if (prof_idx >= PROFILE_COUNT || mode > AKM_RAPID || act_pt > 39 || (global && mode == AKM_GLOBAL)) return false;
+
+    analog_matrix_profile_t *prof = profile_get(prof_idx);
 
     if (global) {
         prof->global.mode               = mode;
@@ -352,11 +359,11 @@ void process_profile_select_combo(void) {
 
         if ((prof_combo & KEY_PRESS_PROF_COMBO) == KEY_PRESS_PROF_COMBO) {
             if (KEY_MASK(PROF_1_KEY_ROW, PROF_1_KEY_COL)) {
-                profile_select(0, true);
+                profile_select(0, true, true);
             } else if (KEY_MASK(PROF_2_KEY_ROW, PROF_2_KEY_COL)) {
-                profile_select(1, true);
+                profile_select(1, true, true);
             } else if (KEY_MASK(PROF_3_KEY_ROW, PROF_3_KEY_COL)) {
-                profile_select(2, true);
+                profile_select(2, true, true);
             }
         }
     }
@@ -376,7 +383,7 @@ bool process_record_profile(uint16_t keycode, keyrecord_t *record) {
         case PROF1:
         case PROF2:
         case PROF3:
-            if (record->event.pressed) profile_select(keycode - PROF1, true);
+            if (record->event.pressed) profile_select(keycode - PROF1, true, true);
             return false; // Skip all further processing of this key
 
         case MO(0)... MO(15):
@@ -421,6 +428,7 @@ void profile_indication_timer_check(void) {
 }
 
 void profile_indication(void) {
+#ifdef RGB_MATRIX_ENABLE
     if (prof_ind_state) {
         static uint8_t prof_led_list[3] = PROFILE_LED_MATRIX_LIST;
         rgb_matrix_set_color_all(prof_ind_state % 2 ? 0 : 255, 0, 0);
@@ -428,5 +436,6 @@ void profile_indication(void) {
             rgb_matrix_set_color(prof_led_list[current_profile_index], prof_ind_state % 2 ? 0 : 255, prof_ind_state % 2 ? 0 : 255, prof_ind_state % 2 ? 0 : 255);
         }
     }
+#endif
 }
 #endif

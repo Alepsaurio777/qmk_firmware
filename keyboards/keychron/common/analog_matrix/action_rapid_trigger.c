@@ -16,6 +16,11 @@
 
 #include "analog_matrix.h"
 
+static int32_t rt_bottom_guard(const analog_key_t *k) {
+    int32_t bottom_guard = ((int32_t)BOTTOM_DEAD_ZONE * TRAVEL_SCALE) - (int32_t)k->rpd_trig_sen_rls;
+    return bottom_guard < 0 ? 0 : bottom_guard;
+}
+
 bool rapid_trigger_action(analog_key_t *key) {
     bool   changed          = false;
     int8_t update_rapid_pts = 0;
@@ -36,7 +41,7 @@ bool rapid_trigger_action(analog_key_t *key) {
             if (key->travel <= key->regular.deactn_pt) {
                 key->state = AKS_REGULAR_RELEASED;
                 changed    = true;
-            } else if (key->travel <= key->rapid.deactn_pt && key->travel < BOTTOM_DEAD_ZONE * TRAVEL_SCALE - key->rpd_trig_sen_rls) {
+            } else if (key->travel <= key->rapid.deactn_pt && (int32_t)key->travel < rt_bottom_guard(key)) {
                 key->state       = AKS_RAPID_RELEASED;
                 changed          = true;
                 update_rapid_pts = -1;
@@ -70,7 +75,7 @@ bool rapid_trigger_action(analog_key_t *key) {
             if (key->travel <= key->regular.deactn_pt) {
                 key->state = AKS_REGULAR_RELEASED;
                 changed    = true;
-            } else if (key->travel <= key->rapid.deactn_pt && key->travel < BOTTOM_DEAD_ZONE * TRAVEL_SCALE - key->rpd_trig_sen_rls) {
+            } else if (key->travel <= key->rapid.deactn_pt && (int32_t)key->travel < rt_bottom_guard(key)) {
                 key->state       = AKS_RAPID_RELEASED;
                 changed          = true;
                 update_rapid_pts = -1;
@@ -87,11 +92,13 @@ bool rapid_trigger_action(analog_key_t *key) {
 
     if (update_rapid_pts) {
         if (update_rapid_pts > 0) {
-            key->rapid.deactn_pt = key->travel - key->rpd_trig_sen_rls > 0 ? key->travel - key->rpd_trig_sen_rls : 0;
+            int16_t deact = (int16_t)key->travel - (int16_t)key->rpd_trig_sen_rls;
+            key->rapid.deactn_pt = (deact > 0) ? (uint8_t)deact : 0;
             key->rapid.actn_pt   = key->travel;
         } else {
             key->rapid.deactn_pt = key->travel;
-            key->rapid.actn_pt   = key->travel + key->rpd_trig_sen;
+            uint16_t actn_pt = (uint16_t)key->travel + key->rpd_trig_sen;
+            key->rapid.actn_pt = actn_pt > 255 ? 255 : actn_pt;
         }
     }
 

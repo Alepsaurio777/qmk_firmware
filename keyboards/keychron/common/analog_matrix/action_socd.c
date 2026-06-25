@@ -30,10 +30,8 @@ extern matrix_row_t raw_matrix[MATRIX_ROWS];
 extern matrix_row_t changed_matrix[MATRIX_ROWS];
 
 void socd_action(void) {
-    matrix_row_t socd_mask[MATRIX_ROWS] = {0};
-    for (uint8_t row = 0; row < MATRIX_ROWS; row++) {
-        socd_mask[row] = ~socd_mask[row];
-    }
+    matrix_row_t socd_mask[MATRIX_ROWS];
+    memset(socd_mask, 0xFF, sizeof(socd_mask));
 
     socd_config_t *socd = profile_get_current()->socd;
     static uint8_t state[SOCD_COUNT];
@@ -46,6 +44,8 @@ void socd_action(void) {
             col1 = socd[i].key_1_col;
             row2 = socd[i].key_2_row;
             col2 = socd[i].key_2_col;
+
+            if (row1 >= MATRIX_ROWS || col1 >= MATRIX_COLS || row2 >= MATRIX_ROWS || col2 >= MATRIX_COLS) continue;
 
             if ((analog_raw_matrix[row1] & (0x01 << col1)) && (analog_raw_matrix[row2] & (0x01 << col2))) {
                 switch (socd[i].type) {

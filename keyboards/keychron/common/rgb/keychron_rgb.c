@@ -60,7 +60,11 @@ enum {
     MIXED_EFFECT_RGB_SET_EFFECT_LIST,
 };
 
+#ifdef RETAIL_DEMO_ENABLE
 extern uint8_t retail_demo_enable;
+#else
+static uint8_t retail_demo_enable;
+#endif
 extern uint8_t per_key_rgb_type;
 extern HSV     per_key_led[RGB_MATRIX_LED_COUNT];
 extern HSV     default_per_key_led[RGB_MATRIX_LED_COUNT];

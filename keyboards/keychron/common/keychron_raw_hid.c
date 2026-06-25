@@ -66,7 +66,7 @@ void get_support_feature(uint8_t *data) {
 #    if defined(SNAP_CLICK_ENABLE) && !defined(ANANLOG_MATRIX)
               | FEATURE_SNAP_CLICK
 #    endif
-#    ifdef KEYCHRON_RGB_ENABLE
+#    if defined(KEYCHRON_RGB_ENABLE) && defined(RGB_MATRIX_ENABLE)
               | FEATURE_KEYCHRON_RGB
 #    endif
         ;
@@ -233,7 +233,7 @@ bool kc_raw_hid_rx(uint8_t src, uint8_t *data, uint8_t length) {
             }
             break;
 
-#    if defined(KEYCHRON_RGB_ENABLE)
+#    if defined(KEYCHRON_RGB_ENABLE) && defined(RGB_MATRIX_ENABLE)
         case 0xA8: {
             extern void kc_rgb_matrix_rx(bool usb, uint8_t *data, uint8_t length);
             kc_rgb_matrix_rx(src == RAW_HID_SRC_USB, data, length);

@@ -107,7 +107,7 @@ static void joystick_action(void) {
         axis_neg = i * 2;
         axis_pos = i * 2 + 1;
 
-        if (axis_changed[i] || axis_changed[axis_pos]) {
+        if (axis_changed[axis_neg] || axis_changed[axis_pos]) {
             changed = true;
             if (axis_travel[axis_neg] > TRAVEL_SCALE && axis_travel[axis_pos] > TRAVEL_SCALE) {
                 // Both direction key are pressed

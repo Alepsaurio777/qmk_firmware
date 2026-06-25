@@ -128,7 +128,7 @@ typedef struct __attribute__((__packed__)) {
 
 typedef struct __attribute__((__packed__)) {
     uint8_t x;                              // 1
-    uint8_t y;;                             // 1
+    uint8_t y;                              // 1
 } point_t;
 // size  = 2 bytes
 

@@ -49,16 +49,12 @@
         { B8, B9 }
 #    define SNLED27351_SDB_PIN B7
 #    define SNLED27351_PHASE_CHANNEL SNLED27351_SCAN_PHASE_9_CHANNEL
-#    define SNLED27351_SPI_DIVISOR 16
+#    define SNLED27351_SPI_DIVISOR 8
 #endif
 
 /* Wireless Configuration */
 #ifdef LK_WIRELESS_ENABLE
 /* Hardware Configuration */
-#    define SPI_SCK_PIN A5
-#    define SPI_MISO_PIN A6
-#    define SPI_MOSI_PIN A7
-
 #    define P24G_MODE_SELECT_PIN A9
 #    define BT_MODE_SELECT_PIN A10
 
@@ -95,3 +91,18 @@
 #define FN_KEY_1 MO(1)
 #define FN_KEY_2 MO(3)
 #define FN_BL_TRIG_KEY KC_END
+
+#define KEYCHRON_DEFAULT_REPORT_RATE_DIV 0
+
+// Disable QMK core debounce to prevent rapid trigger delay
+#define DEBOUNCE 0
+
+// Disable analog ADC debounce loop to ensure absolute minimum latency (scans 1 time instead of 3)
+#define ANALOG_DEBOUNCE_TIME 1
+
+// Tap-hold configurations to make spacebar/other keys feel responsive if mapped as layer-taps or mod-taps
+#define TAPPING_TERM 175
+#define QUICK_TAP_TERM 120
+#define PERMISSIVE_HOLD
+
+

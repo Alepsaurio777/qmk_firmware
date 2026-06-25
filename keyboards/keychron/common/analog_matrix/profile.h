@@ -24,7 +24,7 @@ void profile_init(bool reset);
 analog_matrix_profile_t *profile_get(uint8_t index);
 analog_matrix_profile_t* profile_get_current(void);
 uint8_t profile_get_current_index(void);
-bool profile_select(uint8_t prof_idx, bool indication);
+bool profile_select(uint8_t prof_idx, bool indication, bool save_eeprom);
 bool profile_get_raw_data(uint8_t prof_idx, uint16_t offset, uint8_t size, uint8_t *data);
 bool profile_set_traval(uint8_t prof_idx, uint8_t mode, uint8_t act_pt, uint8_t sens, uint8_t rls_sens, bool global, uint32_t row[]);
 bool profile_set_name(uint8_t prof_idx, uint8_t len, uint8_t *name);

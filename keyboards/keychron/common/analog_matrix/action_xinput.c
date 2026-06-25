@@ -118,7 +118,7 @@ void xinput_action(void) {
             xinput.left_trigger  = travel_to_xinput_value(axis_neg, axis_travel[axis_neg]);
             xinput.right_trigger = travel_to_xinput_value(axis_pos, axis_travel[axis_pos]);
             xinput_changed       = true;
-        } else if (axis_changed[i] || axis_changed[axis_pos]) {
+        } else if (axis_changed[axis_neg] || axis_changed[axis_pos]) {
             if (axis_travel[axis_neg] > TRAVEL_SCALE && axis_travel[axis_pos] > TRAVEL_SCALE) {
                 // Both direction key are pressed
                 if (axis_travel[axis_neg] > axis_travel[axis_pos] + AXIS_DIRECT_VALUE)

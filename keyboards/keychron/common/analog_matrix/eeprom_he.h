@@ -28,6 +28,6 @@
 
 void he_eeprom_driver_init(void);
 void he_eeprom_driver_erase(void);
-void he_eeprom_read_block(void *buf, const void *addr, size_t len);
+bool he_eeprom_read_block(void *buf, const void *addr, size_t len);
 void he_eeprom_write_block(const void *buf, void *addr, size_t len);
 

@@ -1,4 +1,4 @@
-OPT_DEFS += -DFACTORY_TEST_ENABLE -DAPDAPTIVE_NKRO_ENABLE -DVIA_INSECURE
+OPT_DEFS += -DFACTORY_TEST_ENABLE -DAPDAPTIVE_NKRO_ENABLE
 OPT_DEFS += -DSTATE_NOTIFY_ENABLE
 
 KEYCHRON_COMMON_DIR = $(TOP_DIR)/keyboards/keychron/common
@@ -23,7 +23,9 @@ include $(KEYCHRON_COMMON_DIR)/debounce/debounce.mk
 endif
 
 include $(KEYCHRON_COMMON_DIR)/language/language.mk
+ifeq ($(filter -DANANLOG_MATRIX,$(OPT_DEFS)),)
 include $(KEYCHRON_COMMON_DIR)/snap_click/snap_click.mk
+endif
 
 ifeq ($(strip $(KEYCHRON_RGB_ENABLE)), yes)
 ifeq ($(strip $(RGB_MATRIX_ENABLE)), yes)

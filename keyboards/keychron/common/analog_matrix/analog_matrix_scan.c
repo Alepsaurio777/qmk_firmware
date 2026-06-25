@@ -180,9 +180,9 @@ void matrix_read_rows_on_col(uint8_t current_col, matrix_row_t row_shifter) {
         return; // skip NO_PIN col
     }
 
-    wait_us(40);
+    wait_us(30);
 
-    uint8_t debouce_times = ANALOG_DEBOUCE_TIME;
+    uint8_t debounce_times = ANALOG_DEBOUNCE_TIME;
     uint8_t row_value     = 0;
     bool    changed       = false;
 
@@ -198,7 +198,7 @@ void matrix_read_rows_on_col(uint8_t current_col, matrix_row_t row_shifter) {
             if (pressed) {
                 if ((analog_raw_matrix[row_index] & row_mask) == 0) changed = true;
 
-                if (debouce_times == ANALOG_DEBOUCE_TIME) {
+                if (debounce_times == ANALOG_DEBOUNCE_TIME) {
                     row_value |= (0x01 << row_index);
                 } else {
                     row_value_recheck |= (0x01 << row_index);
@@ -208,12 +208,12 @@ void matrix_read_rows_on_col(uint8_t current_col, matrix_row_t row_shifter) {
             }
         }
 
-        if (debouce_times != ANALOG_DEBOUCE_TIME && row_value != row_value_recheck) {
+        if (debounce_times != ANALOG_DEBOUNCE_TIME && row_value != row_value_recheck) {
             // Clear state when bounce occurs
             changed = false;
         }
 
-    } while (--debouce_times && changed);
+    } while (--debounce_times && changed);
 
     if (changed) {
         matrix_changed = true;
@@ -320,7 +320,7 @@ bool matrix_scan_custom(matrix_row_t current_matrix[]) {
         raw_matrix[row] &= analog_matrix_mask[row];
     }
 
-#if defined(ENCODER_MATRIX_ROW) && defined(ENCODER_MATRIX_ROW)
+#if defined(ENCODER_MATRIX_ROW) && defined(ENCODER_MATROX_COL)
     if (readPin(ENCODER_SWITCH_PIN) == 0) {
         if ((raw_matrix[ENCODER_MATRIX_ROW] & (1 << ENCODER_MATROX_COL)) == 0) {
             matrix_changed = true;

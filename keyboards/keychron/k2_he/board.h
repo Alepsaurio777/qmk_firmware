@@ -26,13 +26,13 @@
                                      PIN_MODE_INPUT(GPIOA_PIN1) |           \
                                      PIN_MODE_INPUT(GPIOA_PIN2) |           \
                                      PIN_MODE_INPUT(GPIOA_PIN3) |           \
-                                     PIN_MODE_ALTERNATE(GPIOA_CS43L22_LRCK) |\
+                                     PIN_MODE_INPUT(GPIOA_CS43L22_LRCK) |   \
                                      PIN_MODE_ALTERNATE(GPIOA_L3GD20_SCL) | \
                                      PIN_MODE_ALTERNATE(GPIOA_L3GD20_SD0) | \
                                      PIN_MODE_ALTERNATE(GPIOA_L3GD20_SDI) | \
                                      PIN_MODE_INPUT(GPIOA_PIN8) |           \
                                      PIN_MODE_INPUT(GPIOA_VBUS_FS) |        \
-                                     PIN_MODE_ALTERNATE(GPIOA_OTG_FS_ID) |  \
+                                     PIN_MODE_INPUT(GPIOA_OTG_FS_ID) |      \
                                      PIN_MODE_ALTERNATE(GPIOA_OTG_FS_DM) |  \
                                      PIN_MODE_ALTERNATE(GPIOA_OTG_FS_DP) |  \
                                      PIN_MODE_INPUT(GPIOA_SWDIO) |          \
@@ -42,15 +42,15 @@
 #undef VAL_GPIOA_PUPDR
 #define VAL_GPIOA_PUPDR             (PIN_PUPDR_FLOATING(GPIOA_BUTTON) |     \
                                      PIN_PUPDR_PULLUP(GPIOA_PIN1) |         \
-                                     PIN_PUPDR_PULLDOWN(GPIOA_PIN2) |         \
+                                     PIN_PUPDR_PULLDOWN(GPIOA_PIN2) |       \
                                      PIN_PUPDR_PULLUP(GPIOA_PIN3) |         \
-                                     PIN_PUPDR_FLOATING(GPIOA_CS43L22_LRCK) |\
+                                     PIN_PUPDR_FLOATING(GPIOA_CS43L22_LRCK) | \
                                      PIN_PUPDR_FLOATING(GPIOA_L3GD20_SCL) | \
                                      PIN_PUPDR_PULLUP(GPIOA_L3GD20_SD0) |   \
                                      PIN_PUPDR_PULLUP(GPIOA_L3GD20_SDI) |   \
                                      PIN_PUPDR_PULLUP(GPIOA_PIN8) |         \
                                      PIN_PUPDR_FLOATING(GPIOA_VBUS_FS) |    \
-                                     PIN_PUPDR_FLOATING(GPIOA_OTG_FS_ID) |  \
+                                     PIN_PUPDR_PULLUP(GPIOA_OTG_FS_ID) |    \
                                      PIN_PUPDR_FLOATING(GPIOA_OTG_FS_DM) |  \
                                      PIN_PUPDR_FLOATING(GPIOA_OTG_FS_DP) |  \
                                      PIN_PUPDR_PULLUP(GPIOA_SWDIO) |        \

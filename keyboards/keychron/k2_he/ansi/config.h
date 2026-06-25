@@ -19,7 +19,14 @@
 #ifdef RGB_MATRIX_ENABLE
 /* LED Current Configuration */
 #    define SNLED27351_CURRENT_TUNE \
-        { 0x2C, 0x2C, 0x2C, 0x2C, 0x2C, 0x2C, 0x2C, 0x2C, 0x2C, 0x2C, 0x2C, 0x2C }
+        { 0x24, 0x24, 0x24, 0x24, 0x24, 0x24, 0x24, 0x24, 0x24, 0x24, 0x24, 0x24 }
+
+/* RGB Matrix defaults: indicator only, no startup animation */
+#    define RGB_MATRIX_DEFAULT_ON true
+#    define RGB_MATRIX_DEFAULT_MODE RGB_MATRIX_SOLID_COLOR
+#    define RGB_MATRIX_DEFAULT_HUE 0
+#    define RGB_MATRIX_DEFAULT_SAT 0
+#    define RGB_MATRIX_DEFAULT_VAL 0
 
 /* RGB Matrix Configuration */
 #    define RGB_MATRIX_LED_COUNT 84

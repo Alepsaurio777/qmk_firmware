@@ -29,7 +29,7 @@
 #    include "snap_click.h"
 #endif
 
-#ifdef ANALOG_MATRIX_ENABLE
+#ifdef ANANLOG_MATRIX
 #    include "analog_matrix.h"
 #    include "profile.h"
 #endif

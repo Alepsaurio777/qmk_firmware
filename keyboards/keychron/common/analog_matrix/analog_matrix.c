@@ -20,6 +20,8 @@
 #include "raw_hid.h"
 #include "eeprom.h"
 #include "eeprom_he.h"
+
+static bool calibration_dirty = false;
 #include "usb_main.h"
 #include <stdio.h>
 #include "profile.h"
@@ -40,19 +42,20 @@
 #define REF_RANGE (REF_ZERO_TRAVEL - REF_FULL_TRAVEL)
 
 #ifndef CONST_A1
-#    define CONST_A1 426.88962
+#    define CONST_A1 426.88962f
 #endif
 #ifndef CONST_B1
-#    define CONST_B1 -0.48358
+#    define CONST_B1 -0.48358f
 #endif
 #ifndef CONST_C1
-#    define CONST_C1 2.04637e-4
+#    define CONST_C1 2.04637e-4f
 #endif
 #ifndef CONST_D1
-#    define CONST_D1 -2.99368e-8
+#    define CONST_D1 -2.99368e-8f
 #endif
 
-#define TRAVEL_POLYNOMIAL(x) (CONST_A1 + CONST_B1 * x + CONST_C1 * x * x + CONST_D1 * x * x * x)
+#define TRAVEL_POLYNOMIAL(x) (CONST_A1 + ((float)(x)) * (CONST_B1 + ((float)(x)) * (CONST_C1 + ((float)(x)) * CONST_D1)))
+#define TRAVEL_POLY_REF_ZERO (TRAVEL_POLYNOMIAL(REF_ZERO_TRAVEL))
 
 enum {
     CALIB_OFF = 0,
@@ -129,6 +132,7 @@ static matrix_row_t  calib_state_matrix[MATRIX_ROWS];
 static matrix_row_t manual_calib_zero_invalid[MATRIX_ROWS];
 
 uint8_t calibrated, rapid_actuation, rapid_sensitivity;
+static uint8_t eeprom_calibrated;
 
 static uint32_t calib_ind_timer = 0;
 static uint8_t  last_calib_row  = 0xFF;
@@ -141,20 +145,13 @@ uint8_t analog_matrix_get_travel(uint8_t row, uint8_t col) {
 }
 
 static uint8_t convert_to_travel(uint8_t row, uint8_t col, uint16_t value) {
-#define DEAD_ZONE 30
     uint16_t travel;
-    int16_t  delta = calib_values[row][col].zero_travel - DEAD_ZONE - value;
-
-    if (delta < 0) delta = 0;
-
     calibrated_value_t *p_calib = &calib_values[row][col];
 
-    int16_t  offset = p_calib->zero_travel - REF_ZERO_TRAVEL;
-    uint16_t x      = value - offset;
+    int32_t x = (int32_t)value - (int32_t)p_calib->zero_travel + REF_ZERO_TRAVEL;
+    if (x < 0 || x > REF_ZERO_TRAVEL) return 0;
 
-    if (x > REF_ZERO_TRAVEL) return 0;
-
-    travel = (uint16_t)((TRAVEL_POLYNOMIAL(x) - TRAVEL_POLYNOMIAL(REF_ZERO_TRAVEL)) * scale_factor[row][col] * TRAVEL_SCALE + 0.5);
+    travel = (uint16_t)((TRAVEL_POLYNOMIAL(x) - TRAVEL_POLY_REF_ZERO) * scale_factor[row][col] * TRAVEL_SCALE + 0.5f);
     if (travel > (FULL_TRAVEL_UNIT + 1) * TRAVEL_SCALE - 1) travel = (FULL_TRAVEL_UNIT + 1) * TRAVEL_SCALE - 1;
 
     return travel & 0xFF;
@@ -189,7 +186,7 @@ void update_key_config(uint8_t row, uint8_t col) {
         p_key->regular.actn_pt = p_key_cfg->act_pt;
 
     // Update deactuaction point
-    p_key->regular.deactn_pt = p_key->regular.actn_pt - 3 > 0 ? p_key->regular.actn_pt - 3 : 0;
+    p_key->regular.deactn_pt = p_key->regular.actn_pt > STATIC_HYSTERESIS ? p_key->regular.actn_pt - STATIC_HYSTERESIS : 0;
 
     // Update rapid trigger sensitivity
     if (p_key_cfg->rpd_trig_sen == 0)
@@ -216,8 +213,7 @@ void update_key_config(uint8_t row, uint8_t col) {
         p_key->js_axis = p_key_cfg->js_axis;
     } else if (p_key_cfg->adv_mode == AKM_TOGGLE) {
         p_key->hold = 0;
-    } else
-        p_key_cfg->adv_mode = 0;
+    }
 }
 
 void update_travel_configs(void) {
@@ -247,12 +243,16 @@ static void update_default_travel(void) {
 static inline void update_scale_factor(uint8_t row, uint8_t col) {
     calibrated_value_t *p_calib = &calib_values[row][col];
 
-    if (calibrated | CALI_FULL_TRAVEL) {
+    if (calibrated & CALI_FULL_TRAVEL) {
         int16_t offset      = p_calib->zero_travel - REF_ZERO_TRAVEL;
         uint16_t x          = p_calib->full_travel - offset;
 
-        float    full_travel = (TRAVEL_POLYNOMIAL(x) - TRAVEL_POLYNOMIAL(REF_ZERO_TRAVEL));
-        scale_factor[row][col]   = FULL_TRAVEL_UNIT / full_travel;
+        float    full_travel = (TRAVEL_POLYNOMIAL(x) - TRAVEL_POLY_REF_ZERO);
+        if (full_travel > 1.0f) {
+            scale_factor[row][col] = FULL_TRAVEL_UNIT / full_travel;
+        } else {
+            scale_factor[row][col] = 1.0f;
+        }
     } else
         scale_factor[row][col] = 1.0f;
 
@@ -272,28 +272,10 @@ void analog_matrix_eeprom_update(const void *buf, void *addr, size_t len) {
     eeprom_update_block(buf, addr, len);
 }
 
-static void save_calibration_value(uint8_t row, uint8_t col) {
-    static uint8_t eeprom_calibrated;
-
-    if (eeprom_calibrated != calibrated) {
-        eeprom_calibrated = calibrated;
-        he_eeprom_write_block(&calibrated, (void *)(EXTERNAL_EEPROM_OFFSET + OFFSET_CALIBRATION), 1);
-    }
-
-    uint32_t offset = OFFSET_CALIBRATED_DATA_START + (&saved_calib_values[row][col]-&saved_calib_values[0][0])* sizeof(saved_calib_values[0][0]);
-    he_eeprom_write_block(&saved_calib_values[row][col], (void *)(EXTERNAL_EEPROM_OFFSET + offset), sizeof(saved_calib_values[0][0]));
-
-    // Save a copy to emulated EEPROM
-    if (!eeconfig_is_kb_datablock_valid()) eeprom_update_dword(EECONFIG_KEYBOARD, (EECONFIG_KB_DATA_VERSION));
-
-    analog_matrix_eeprom_update(&calibrated, (void *)OFFSET_CALIBRATION, 1);
-    analog_matrix_eeprom_update(&saved_calib_values[row][col], (void *)offset, sizeof(saved_calib_values[0][0]));
-}
+// Removed save_calibration_value as it is now handled asynchronously
 
 static void save_calibration_values(void) {
     // Save to external EEPROM
-    static uint8_t eeprom_calibrated;
-
     if (eeprom_calibrated != calibrated) {
         eeprom_calibrated = calibrated;
         he_eeprom_write_block(&calibrated, (void *)(EXTERNAL_EEPROM_OFFSET + OFFSET_CALIBRATION), 1);
@@ -328,8 +310,8 @@ static bool calibrate(void) {
 
                 uint32_t sum = 0;
                 for (uint8_t i=0; i<CAL_SAMPL_CNT; i++) {
-                    if (calibrate_values[r][c][cur_calib] > VALID_ANALOG_RAW_VALUE_MIN)
-                        sum += calibrate_values[r][c][cur_calib];
+                    if (calibrate_values[r][c][i] > VALID_ANALOG_RAW_VALUE_MIN)
+                        sum += calibrate_values[r][c][i];
                     else {
                         sum = 0;
                         break;
@@ -545,9 +527,10 @@ void auto_caliration_check(uint8_t row, uint8_t col, uint16_t value) {
                         /* Save */
                         saved_calib_values[row][col].zero_travel = calib_values[row][col].zero_travel;
                         saved_calib_values[row][col].full_travel = calib_values[row][col].full_travel;
-                        save_calibration_value(row, col);
+                        calibration_dirty = true;
                     } else {
-                        calib_values[row][col].full_travel = p->value.full_travel - 15;
+                        calib_values[row][col].zero_travel = saved_calib_values[row][col].zero_travel;
+                        calib_values[row][col].full_travel = saved_calib_values[row][col].full_travel;
                     }
 
                     update_default_travel();
@@ -592,6 +575,9 @@ void analog_matrix_eeconfig_init(void) {
     profile_init(reset_profiles);
 
     uint8_t *buf = (uint8_t *)malloc(EECONFIG_SIZE_ANALOG_MATRIX);
+    if (!buf) {
+        return;
+    }
     memset(buf, 0, EECONFIG_SIZE_ANALOG_MATRIX);
 
     eeprom_read_block(buf, (void *)EECONFIG_BASE_ANALOG_MATRIX, EECONFIG_SIZE_ANALOG_MATRIX);
@@ -610,18 +596,31 @@ void analog_matrix_eeconfig_init(void) {
     if (calibrated) {
         memcpy(saved_calib_values, buf + OFFSET_CALIBRATED_DATA_START, sizeof(saved_calib_values));
     } else {
-        uint32_t buf;
-        he_eeprom_read_block(&buf, 0, 4); // Magic number
+        uint32_t magic;
+        if (!he_eeprom_read_block(&magic, 0, 4)) {
+            // I2C read failed, fallback to defaults
+            calibration_validate();
+            update_default_travel();
+            return;
+        }
 
-        if (buf != VENDOR_ID) {
+        if (magic != VENDOR_ID) {
             he_eeprom_driver_erase();
-            buf = VENDOR_ID;
-            he_eeprom_write_block(&buf, 0, 4);
+            magic = VENDOR_ID;
+            he_eeprom_write_block(&magic, 0, 4);
             // cali_state = CALIB_ZERO_TRAVEL;
         } else {
-            he_eeprom_read_block(&calibrated, (void *)(EXTERNAL_EEPROM_OFFSET + OFFSET_CALIBRATION), 1);
+            if (!he_eeprom_read_block(&calibrated, (void *)(EXTERNAL_EEPROM_OFFSET + OFFSET_CALIBRATION), 1)) {
+                calibration_validate();
+                update_default_travel();
+                return;
+            }
             if (calibrated) {
-                he_eeprom_read_block(saved_calib_values, (void *)(EXTERNAL_EEPROM_OFFSET + OFFSET_CALIBRATED_DATA_START), sizeof(calib_values));
+                if (!he_eeprom_read_block(saved_calib_values, (void *)(EXTERNAL_EEPROM_OFFSET + OFFSET_CALIBRATED_DATA_START), sizeof(calib_values))) {
+                    calibration_validate();
+                    update_default_travel();
+                    return;
+                }
                 // Save to emulated EEPROM
                 analog_matrix_eeprom_update(&calibrated, OFFSET_CALIBRATION, 1);
                 analog_matrix_eeprom_update(saved_calib_values, (uint8_t *)OFFSET_CALIBRATED_DATA_START, sizeof(saved_calib_values));
@@ -680,13 +679,11 @@ bool update_raw_value(uint8_t row, uint8_t col, uint16_t value) {
 
     analog_key_t *k = &analog_key_matrix[row][col];
 
-    if (abs(k->last_val - value) < 5) return false;
-
     k->last_val = value;
     k->value    = value;
     k->travel   = convert_to_travel(row, col, value);
 
-    if (k->travel == k->last_travel) return false;
+    if (k->travel == k->last_travel && k->mode != AKM_RAPID) return false;
 
     k->last_travel = k->travel;
 
@@ -750,9 +747,6 @@ bool analog_matrix_get_key_state(uint8_t row, uint8_t col) {
     }
 }
 
-uint16_t pos2actuation(uint8_t row, uint8_t col, uint8_t point) {
-    return 2000;
-}
 
 bool set_calibrate(uint8_t *data) {
     uint8_t new_cali_state = data[0];
@@ -808,6 +802,23 @@ bool get_realtime_travel(uint8_t *data) {
 
 void analog_matrix_task(void) {
     calibrate();
+
+    extern uint32_t last_input_activity_time(void);
+    if (calibration_dirty && timer_elapsed32(last_input_activity_time()) > 1000) {
+        extern matrix_row_t analog_raw_matrix[MATRIX_ROWS];
+        bool has_key = false;
+        for (uint8_t i = 0; i < MATRIX_ROWS; i++) {
+            if (analog_raw_matrix[i] != 0) {
+                has_key = true;
+                break;
+            }
+        }
+        if (!has_key) {
+            save_calibration_values();
+            calibration_dirty = false;
+        }
+    }
+
     profile_indication_timer_check();
     socd_action();
 #ifdef JOYSTICK_ENABLE
@@ -841,6 +852,7 @@ static bool get_calibrated_value(uint8_t row, uint8_t col, uint8_t *data) {
         data[i++] = 0;
         data[i++] = MATRIX_COLS;
         data[i++] = 0;
+        return true;
     } else if (row >= MATRIX_ROWS || col >= MATRIX_COLS)
         return false;
 
@@ -860,7 +872,7 @@ static bool get_calibrated_value(uint8_t row, uint8_t col, uint8_t *data) {
 }
 
 void analog_matrix_rx(uint8_t *data, uint8_t length) {
-    if (data[0] != 0xA9) return;
+    if (length < 2 || data[0] != 0xA9) return;
 
     uint8_t cmd     = data[1];
     bool    success = true;
@@ -883,20 +895,33 @@ void analog_matrix_rx(uint8_t *data, uint8_t length) {
             uint8_t  index  = data[2];
             uint16_t offset = (data[4] << 8) | data[3];
             uint8_t  size   = data[5];
-            success         = profile_get_raw_data(index, offset, size, &data[6]);
+            if (length < 6 || size > length - 6) {
+                success = false;
+            } else {
+                success = profile_get_raw_data(index, offset, size, &data[6]);
+            }
         } break;
 
         case AMC_SET_PROFILE_NAME:
-            success = profile_set_name(data[2], data[3], &data[4]);
+            if (length < 4 || length < 4 + data[3]) {
+                success = false;
+            } else {
+                success = profile_set_name(data[2], data[3], &data[4]);
+            }
             data[2] = success ? 0 : 1;
             break;
 
         case AMC_SELECT_PROFILE:
-            success = profile_select(data[2], false);
+            success = profile_select(data[2], false, true);
             data[2] = success ? 0 : 1;
             break;
 
         case AMC_SET_TRAVAL: {
+            if (length < 8) {
+                success = false;
+                data[2] = 1;
+                break;
+            }
             uint8_t  profile               = data[2];
             uint8_t  mode                  = data[3];
             uint8_t  act_pt                = data[4];
@@ -905,6 +930,11 @@ void analog_matrix_rx(uint8_t *data, uint8_t length) {
             bool     entire                = data[7];
             uint32_t row_mask[MATRIX_ROWS] = {0};
             if (!entire) {
+                if (length < 8 + MATRIX_ROWS * 3) {
+                    success = false;
+                    data[2] = 1;
+                    break;
+                }
                 for (uint8_t i = 0, j = 8; i < MATRIX_ROWS; i++, j += 3) {
                     memcpy(&row_mask[i], &data[j], 3);
                 }
@@ -915,12 +945,20 @@ void analog_matrix_rx(uint8_t *data, uint8_t length) {
         } break;
 
         case AMC_SET_ADVANCE_MODE:
-            success = profile_set_adv_mode(&data[2]);
+            if (length < 27) {
+                success = false;
+            } else {
+                success = profile_set_adv_mode(&data[2]);
+            }
             data[2] = success ? 0 : 1;
             break;
 
         case AMC_SET_SOCD:
-            success = profile_set_socd(&data[2]);
+            if (length < 9) {
+                success = false;
+            } else {
+                success = profile_set_socd(&data[2]);
+            }
             data[2] = success ? 0 : 1;
             break;
 
@@ -945,7 +983,11 @@ void analog_matrix_rx(uint8_t *data, uint8_t length) {
             break;
 
         case AMC_SET_CURVE:
-            success = game_controller_set_curve((point_t *)&data[2]);
+            if (length < 10) {
+                success = false;
+            } else {
+                success = game_controller_set_curve((point_t *)&data[2]);
+            }
             data[2] = success ? 0 : 1;
             break;
 
@@ -956,6 +998,7 @@ void analog_matrix_rx(uint8_t *data, uint8_t length) {
 
         case AMC_SET_GAME_CONTROLLER_MODE:
             success = game_controller_mode_set(data[2]);
+            data[2] = success ? 0 : 1;
             break;
 
         case AMC_CALIBRATE:
@@ -977,6 +1020,7 @@ void analog_matrix_rx(uint8_t *data, uint8_t length) {
 }
 
 void analog_matrix_indicator(void) {
+#ifdef RGB_MATRIX_ENABLE
     if (cali_state == CALIB_FULL_TRAVEL_MANUAL) {
         rgb_matrix_set_color_all(150, 0, 150);
 
@@ -998,6 +1042,7 @@ void analog_matrix_indicator(void) {
             }
         return;
     }
+#endif
     profile_indication();
 }
 

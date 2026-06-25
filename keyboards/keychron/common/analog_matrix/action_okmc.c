@@ -147,6 +147,7 @@ static void inline deep_deactuate(okmc_config_t *okmc) {
 }
 
 bool okmc_action(analog_key_t *key) {
+    if (key->okmc_idx >= OKMC_COUNT) return false;
     bool                     changed    = false;
     analog_matrix_profile_t *cur_prof   = profile_get_current();
     okmc_traval_config_t    *travel_cfg = &cur_prof->okmc[key->okmc_idx].travel;

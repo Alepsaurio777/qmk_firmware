@@ -77,8 +77,8 @@
 
 #define TRAVEL_SCALE 6
 
-#ifndef ANALOG_DEBOUCE_TIME
-#    define ANALOG_DEBOUCE_TIME 3
+#ifndef ANALOG_DEBOUNCE_TIME
+#    define ANALOG_DEBOUNCE_TIME 3
 #endif
 
 // Threshold value when the magnet switch is not installed

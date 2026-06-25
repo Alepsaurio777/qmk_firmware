@@ -110,13 +110,13 @@ void he_eeprom_driver_erase(void) {
     }
 }
 
-void he_eeprom_read_block(void *buf, const void *addr, size_t len) {
+bool he_eeprom_read_block(void *buf, const void *addr, size_t len) {
 
     uint8_t complete_packet[EXTERNAL_EEPROM_ADDRESS_SIZE];
     fill_target_address(complete_packet, addr);
 
-    i2c_transmit(EXTERNAL_EEPROM_I2C_ADDRESS((uintptr_t)addr), complete_packet, EXTERNAL_EEPROM_ADDRESS_SIZE, 100);
-    i2c_receive(EXTERNAL_EEPROM_I2C_ADDRESS((uintptr_t)addr), buf, len, 100);
+    if (i2c_transmit(EXTERNAL_EEPROM_I2C_ADDRESS((uintptr_t)addr), complete_packet, EXTERNAL_EEPROM_ADDRESS_SIZE, 100) != I2C_STATUS_SUCCESS) return false;
+    return i2c_receive(EXTERNAL_EEPROM_I2C_ADDRESS((uintptr_t)addr), buf, len, 100) == I2C_STATUS_SUCCESS;
 }
 
 void he_eeprom_write_block(const void *buf, void *addr, size_t len) {
@@ -142,7 +142,7 @@ void he_eeprom_write_block(const void *buf, void *addr, size_t len) {
             complete_packet[EXTERNAL_EEPROM_ADDRESS_SIZE + i] = read_buf[i];
         }
 
-        i2c_transmit(EXTERNAL_EEPROM_I2C_ADDRESS((uintptr_t)addr), complete_packet, EXTERNAL_EEPROM_ADDRESS_SIZE + write_length, 100);
+        i2c_transmit(EXTERNAL_EEPROM_I2C_ADDRESS((uintptr_t)target_addr), complete_packet, EXTERNAL_EEPROM_ADDRESS_SIZE + write_length, 100);
         wait_ms(EXTERNAL_EEPROM_WRITE_TIME);
 
         read_buf += write_length;
