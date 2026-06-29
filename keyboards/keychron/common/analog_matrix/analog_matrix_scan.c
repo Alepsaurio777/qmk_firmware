@@ -49,6 +49,10 @@
 #    define ANALOG_SELECT_SETTLE_US 30
 #endif
 
+#if ANALOG_DEBOUNCE_TIME < 1
+#    error "ANALOG_DEBOUNCE_TIME must be >= 1; 0 underflows the analog debounce loop"
+#endif
+
 #ifndef HC164_DELAY_NOPS
 #    define HC164_DELAY_NOPS 50
 #endif

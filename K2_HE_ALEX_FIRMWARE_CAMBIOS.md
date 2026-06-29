@@ -45,6 +45,8 @@ Y en el keymap:
 
 ```make
 RGB_MATRIX_ENABLE = no
+LK_WIRELESS_ENABLE = no
+KC_BLUETOOTH_ENABLE = no
 DEBOUNCE_TYPE = none
 LTO_ENABLE = yes
 ```
@@ -55,10 +57,12 @@ LTO_ENABLE = yes
 
 - `RGB_MATRIX_ENABLE = no`
 - `KEYCHRON_RGB_ENABLE = no`
-- Wireless/Bluetooth fuera del build.
+- `LK_WIRELESS_ENABLE = no`
+- `KC_BLUETOOTH_ENABLE = no`
 - Factory Test apagado.
 - LTO habilitado.
 - Debounce QMK desactivado con `DEBOUNCE_TYPE = none`.
+- Debounce analogico minimo con `ANALOG_DEBOUNCE_TIME = 1`.
 
 ### Logica
 
@@ -70,6 +74,12 @@ El debounce clasico no es la herramienta correcta para un teclado Hall Effect:
 el estado real depende de travel analogico, actuation point, release point,
 histeresis y Rapid Trigger.
 
+`ANALOG_DEBOUNCE_TIME = 1` no significa debounce QMK clasico. Es una sola
+pasada del loop analogico por columna, el minimo seguro para esta implementacion.
+Se agrego una guarda de compilacion para prohibir `0`, porque el contador
+`uint8_t` del `do/while` podria hacer underflow y repetir hasta 255 lecturas si
+hay un cambio de estado.
+
 ## Modo Gaming puro
 
 ### Cambios
@@ -78,8 +88,8 @@ En Gaming se bloquean:
 
 - Macros VIA.
 - Cambios de capa y FN.
-- Seleccion de perfiles `PROF1..PROF3`.
-- Combo interno de perfiles por `virtual_matrix`.
+- Seleccion directa de perfiles `PROF1..PROF3` desde `process_record_user()`.
+- Combo interno de perfiles por `virtual_matrix` en `profile.c`.
 - `QK_BOOTLOADER`.
 - `QK_REBOOT`.
 - `QK_CLEAR_EEPROM`.
@@ -357,6 +367,15 @@ calibracion/diagnostico.
 ```make
 DEBOUNCE_TYPE = none
 ```
+
+El debounce analogico minimo queda separado del debounce QMK:
+
+```c
+#define ANALOG_DEBOUNCE_TIME 1
+```
+
+No se debe bajar a `0`; `analog_matrix_scan.c` ahora falla en compilacion si se
+intenta hacerlo.
 
 ## Cambios rechazados o pospuestos
 
