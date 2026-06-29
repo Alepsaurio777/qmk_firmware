@@ -97,8 +97,44 @@
 // Disable QMK core debounce to prevent rapid trigger delay
 #define DEBOUNCE 0
 
+// K2 HE gaming build: keep calibration dead zone minimal; top-out filtering is
+// handled dynamically in convert_to_travel().
+#define ZERO_TRAVEL_DEAD_ZONE 2
+#define TOP_OUT_DEAD_ZONE_GAMING 12
+#define TOP_OUT_DEAD_ZONE_TYPING 20
+#define STATIC_HYSTERESIS_GAMING 5
+#define STATIC_HYSTERESIS_GAMING_FAST_KEY 2
+#define ANALOG_ADAPTIVE_SHALLOW_HYSTERESIS_GAMING 1
+#define ANALOG_GAMING_FAST_KEY_ROW 5
+#define ANALOG_GAMING_FAST_KEY_COL 6
+#define ANALOG_CONTINUOUS_RT_KEY1_ROW 5
+#define ANALOG_CONTINUOUS_RT_KEY1_COL 6
+#define ANALOG_CONTINUOUS_RT_KEY2_ROW 4
+#define ANALOG_CONTINUOUS_RT_KEY2_COL 0
+#define STATIC_HYSTERESIS_TYPING 5
+#define ANALOG_RAW_NOISE_FILTER_GAMING 5
+#define ANALOG_RAW_NOISE_FILTER_TYPING 5
+
 // Disable analog ADC debounce loop to ensure absolute minimum latency (scans 1 time instead of 3)
 #define ANALOG_DEBOUNCE_TIME 1
+
+// Competition scan path: 18 MHz ADC clock (halconf) with 28-cycle sample time.
+// Six channels convert in about 13.3 us instead of about 45.3 us at DIV8/56 cycles.
+#define ANALOG_ADC_SAMPLE_TIME ADC_SAMPLE_28
+#define ANALOG_SELECT_SETTLE_US 20
+
+// Remove FPU work and background auto-calibration saves from the scan hot path.
+#define ANALOG_FIXED_POINT_TRAVEL 1
+#define ANALOG_AUTO_CALIBRATION_ENABLE 0
+
+// In Gaming layers, ignore Launcher advanced mappings that can synthesize or
+// latch input and fall back to the key's base profile mode.
+#define ANALOG_DISABLE_OKMC_IN_GAMING_MODE 1
+#define ANALOG_DISABLE_TOGGLE_IN_GAMING_MODE 1
+#define ANALOG_DISABLE_GAMEPAD_IN_GAMING_MODE 1
+#define ANALOG_DISABLE_SOCD_IN_GAMING_MODE 1
+#define ANALOG_DISABLE_PROFILE_COMBO_IN_GAMING_MODE 1
+#define ANALOG_CONTINUOUS_RAPID_TRIGGER_IN_GAMING_MODE 0
 
 // Tap-hold configurations to make spacebar/other keys feel responsive if mapped as layer-taps or mod-taps
 #define TAPPING_TERM 175

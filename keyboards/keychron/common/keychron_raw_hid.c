@@ -81,6 +81,14 @@ void send_analog_matrix(uint8_t *data, uint8_t length) {
     uint8_t offset = data[2];
     uint8_t rows   = 28 / ((MATRIX_COLS + 7) / 8);
     uint8_t i      = 3;
+
+    // Keep VIA's request/response cadence while preventing OOB reads.
+    if (offset >= MATRIX_ROWS) {
+        if (length > i) memset(&data[i], 0, length - i);
+        via_raw_hid_send(RAW_HID_SRC_USB, data, length);
+        return;
+    }
+    if (offset + rows > MATRIX_ROWS) rows = MATRIX_ROWS - offset;
     for (uint8_t row = 0; row < rows && row + offset < MATRIX_ROWS; row++) {
         matrix_row_t value = analog_matrix_get_row(row + offset);
 #        if (MATRIX_COLS > 24)
@@ -256,6 +264,7 @@ bool kc_raw_hid_rx(uint8_t src, uint8_t *data, uint8_t length) {
                 return true;
 #    endif
             }
+            return false;  // Defensive: prevent fall-through to 0xAB
 #    ifdef FACTORY_TEST_ENABLE
         case 0xAB:
             factory_test_rx(src == RAW_HID_SRC_USB, data, length);

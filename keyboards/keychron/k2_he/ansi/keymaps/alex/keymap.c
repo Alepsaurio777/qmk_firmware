@@ -15,6 +15,7 @@
  */
 
 #include QMK_KEYBOARD_H
+#include "analog_matrix.h"
 #include "keychron_common.h"
 
 enum layers {
@@ -65,6 +66,21 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
 
 extern bool profile_select(uint8_t prof_idx, bool indication, bool save_eeprom);
 
+static inline bool is_layer_switch_keycode(uint16_t keycode) {
+    return IS_QK_LAYER_TAP(keycode) ||
+           IS_QK_LAYER_MOD(keycode) ||
+           IS_QK_TO(keycode) ||
+           IS_QK_MOMENTARY(keycode) ||
+           IS_QK_DEF_LAYER(keycode) ||
+           IS_QK_TOGGLE_LAYER(keycode) ||
+           IS_QK_ONE_SHOT_LAYER(keycode) ||
+           IS_QK_LAYER_TAP_TOGGLE(keycode);
+}
+
+static inline bool is_profile_select_keycode(uint16_t keycode) {
+    return keycode >= PROF1 && keycode <= PROF3;
+}
+
 layer_state_t default_layer_state_set_user(layer_state_t state) {
     if (state & (1UL << WIN_BASE)) {
         // Win Base layer active (Productivity) -> select Profile 1 (index 0)
@@ -76,3 +92,41 @@ layer_state_t default_layer_state_set_user(layer_state_t state) {
     return state;
 }
 
+bool process_record_user(uint16_t keycode, keyrecord_t *record) {
+    // Si estamos en modo Gaming (Interruptor fisico en Mac = Capas 0 y 1)
+    if (analog_matrix_is_gaming_mode()) {
+        // Bloquear todas las Macros de VIA
+        if (keycode >= QK_MACRO && keycode <= QK_MACRO_MAX) {
+            return false;
+        }
+
+        // Bloquear cualquier cambio de capa en Gaming, aunque se remapee desde Launcher.
+        if (is_layer_switch_keycode(keycode)) {
+            return false;
+        }
+
+        // Bloquear cambios de perfil HE en Gaming.
+        if (is_profile_select_keycode(keycode)) {
+            return false;
+        }
+
+        // Bloquear keycodes de sistema que podrian interrumpir o danar la sesion.
+        if (keycode == QK_BOOTLOADER || keycode == QK_REBOOT || keycode == QK_CLEAR_EEPROM) {
+            return false;
+        }
+
+        // Bloquear QK_MAGIC: GU_TOGG, NK_TOGG, swaps de Ctrl/GUI/Alt, etc.
+        if (IS_QK_MAGIC(keycode)) {
+            return false;
+        }
+
+#if defined(LK_WIRELESS_ENABLE) || defined(KC_BLUETOOTH_ENABLE)
+        // Bloquear keycodes wireless/battery que no sirven en Gaming.
+        if (keycode == BAT_LVL || keycode == BT_HST1 || keycode == BT_HST2 ||
+            keycode == BT_HST3 || keycode == P2P4G) {
+            return false;
+        }
+#endif
+    }
+    return true; // Permitir que QMK procese todo lo demas de forma normal
+}

@@ -21,9 +21,33 @@ static int32_t rt_bottom_guard(const analog_key_t *k) {
     return bottom_guard < 0 ? 0 : bottom_guard;
 }
 
+static inline bool rt_continuous_key_matches(const analog_key_t *key, uint8_t row, uint8_t col) {
+    return row != 0xFF && col != 0xFF && key->r == row && key->c == col;
+}
+
+static inline bool rt_continuous_enabled(const analog_key_t *key) {
+#if ANALOG_CONTINUOUS_RAPID_TRIGGER_IN_GAMING_MODE
+    return analog_matrix_is_gaming_mode() &&
+           (rt_continuous_key_matches(key, ANALOG_CONTINUOUS_RT_KEY1_ROW, ANALOG_CONTINUOUS_RT_KEY1_COL) ||
+            rt_continuous_key_matches(key, ANALOG_CONTINUOUS_RT_KEY2_ROW, ANALOG_CONTINUOUS_RT_KEY2_COL));
+#else
+    (void)key;
+    return false;
+#endif
+}
+
+static inline bool rt_regular_release_ready(const analog_key_t *key, bool continuous_rt) {
+    return continuous_rt ? key->travel == 0 : key->travel <= key->regular.deactn_pt;
+}
+
+static inline bool rt_repress_ready(const analog_key_t *key, bool continuous_rt) {
+    return key->travel >= key->rapid.actn_pt && (continuous_rt || key->travel >= key->regular.actn_pt);
+}
+
 bool rapid_trigger_action(analog_key_t *key) {
     bool   changed          = false;
     int8_t update_rapid_pts = 0;
+    bool   continuous_rt    = rt_continuous_enabled(key);
 
     switch (key->state) {
         case AKS_REGULAR_RELEASED:
@@ -38,7 +62,7 @@ bool rapid_trigger_action(analog_key_t *key) {
 
         case AKS_REGULAR_PRESSED:
             // Key releasing
-            if (key->travel <= key->regular.deactn_pt) {
+            if (rt_regular_release_ready(key, continuous_rt)) {
                 key->state = AKS_REGULAR_RELEASED;
                 changed    = true;
             } else if (key->travel <= key->rapid.deactn_pt && (int32_t)key->travel < rt_bottom_guard(key)) {
@@ -54,11 +78,11 @@ bool rapid_trigger_action(analog_key_t *key) {
 
         case AKS_RAPID_RELEASED:
             // Continue releasing
-            if (key->travel <= key->regular.deactn_pt) {
+            if (rt_regular_release_ready(key, continuous_rt)) {
                 key->state = AKS_REGULAR_RELEASED;
             }
             // Press again
-            else if (key->travel >= key->rapid.actn_pt && key->travel >= key->regular.actn_pt) {
+            else if (rt_repress_ready(key, continuous_rt)) {
                 key->state       = AKS_RAPID_PRESSED;
                 changed          = true;
                 update_rapid_pts = 1;
@@ -72,7 +96,7 @@ bool rapid_trigger_action(analog_key_t *key) {
             if (key->travel > FULL_TRAVEL_UNIT * TRAVEL_SCALE) {
                 break;
             }
-            if (key->travel <= key->regular.deactn_pt) {
+            if (rt_regular_release_ready(key, continuous_rt)) {
                 key->state = AKS_REGULAR_RELEASED;
                 changed    = true;
             } else if (key->travel <= key->rapid.deactn_pt && (int32_t)key->travel < rt_bottom_guard(key)) {

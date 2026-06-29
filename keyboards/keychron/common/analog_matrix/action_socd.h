@@ -25,3 +25,5 @@ enum {
     SOCD_PRI_NEUTRAL,
     SOCD_PRI_MAX,
 };
+
+void socd_update_active_state(void);

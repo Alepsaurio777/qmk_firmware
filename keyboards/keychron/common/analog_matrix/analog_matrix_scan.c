@@ -41,10 +41,27 @@
 #define ADC_GRP_BUF_DEPTH 1
 #define UNUSED_DEPTH 0
 
+#ifndef ANALOG_ADC_SAMPLE_TIME
+#    define ANALOG_ADC_SAMPLE_TIME ADC_SAMPLE_56
+#endif
+
+#ifndef ANALOG_SELECT_SETTLE_US
+#    define ANALOG_SELECT_SETTLE_US 30
+#endif
+
+#ifndef HC164_DELAY_NOPS
+#    define HC164_DELAY_NOPS 50
+#endif
+
+#ifndef HC164_RESET_DELAY_NOPS
+#    define HC164_RESET_DELAY_NOPS 20
+#endif
+
 extern matrix_row_t raw_matrix[MATRIX_ROWS];
 extern matrix_row_t matrix[MATRIX_ROWS];
 extern matrix_row_t game_controller_matrix[MATRIX_ROWS];
 extern matrix_row_t okmc_matrix[MATRIX_ROWS];
+extern const matrix_row_t analog_matrix_mask[MATRIX_ROWS];
 matrix_row_t        analog_raw_matrix[MATRIX_ROWS];
 matrix_row_t        changed_matrix[MATRIX_ROWS];
 
@@ -127,7 +144,7 @@ static inline void shifter_delay(uint16_t n) {
 }
 
 static void HC164_output(uint16_t data, bool bit_flag) {
-    uint8_t n = 50;
+    uint8_t n = HC164_DELAY_NOPS;
 
     ATOMIC_BLOCK_FORCEON {
         for (uint8_t i = 0; i < 15; i++) {
@@ -153,9 +170,9 @@ static void HC164_output(uint16_t data, bool bit_flag) {
 static bool select_col(uint8_t col) {
     if (col == 0) {
         writePinLow(HC164_MR);
-        shifter_delay(20);
+        shifter_delay(HC164_RESET_DELAY_NOPS);
         writePinHigh(HC164_MR);
-        shifter_delay(20);
+        shifter_delay(HC164_RESET_DELAY_NOPS);
         HC164_output(0x01, true);
 #if (SHIFTER_START_INDEX != 0)
         for (uint8_t i = 0; i < SHIFTER_START_INDEX; i++) {
@@ -180,7 +197,7 @@ void matrix_read_rows_on_col(uint8_t current_col, matrix_row_t row_shifter) {
         return; // skip NO_PIN col
     }
 
-    wait_us(30);
+    wait_us(ANALOG_SELECT_SETTLE_US);
 
     uint8_t debounce_times = ANALOG_DEBOUNCE_TIME;
     uint8_t row_value     = 0;
@@ -196,8 +213,10 @@ void matrix_read_rows_on_col(uint8_t current_col, matrix_row_t row_shifter) {
         }
 
         uint8_t row_value_recheck = 0;
+        matrix_row_t row_mask = 0x01 << current_col;
         for (uint8_t row_index = 0; row_index < MATRIX_ROWS; row_index++) {
-            matrix_row_t row_mask = 0x01 << current_col;
+            if ((analog_matrix_mask[row_index] & row_mask) == 0) continue;
+
             update_raw_value(row_index, current_col, samples[row_index]);
 
             bool pressed = analog_matrix_get_key_state(row_index, current_col);
@@ -270,9 +289,9 @@ void matrix_init_custom(void) {
         chn = pinToAdcChn(row_pins[x]);
         if (chn < 0xFF) {
             if (chn > 9)
-                smpr[0] |= ADC_SAMPLE_56 << ((chn - 10) * 3);
+                smpr[0] |= ANALOG_ADC_SAMPLE_TIME << ((chn - 10) * 3);
             else
-                smpr[1] |= ADC_SAMPLE_56 << (chn * 3);
+                smpr[1] |= ANALOG_ADC_SAMPLE_TIME << (chn * 3);
 
             sqr[chn_cnt / 6] |= chn << ((chn_cnt % 6) * 5);
             chn_cnt++;
@@ -321,7 +340,6 @@ bool matrix_scan_custom(matrix_row_t current_matrix[]) {
     }
 
     analog_matrix_task();
-    extern matrix_row_t analog_matrix_mask[];
     for (uint8_t row = 0; row < MATRIX_ROWS; row++) {
         raw_matrix[row] &= analog_matrix_mask[row];
     }

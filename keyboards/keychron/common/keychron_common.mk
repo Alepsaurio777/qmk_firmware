@@ -1,4 +1,4 @@
-OPT_DEFS += -DFACTORY_TEST_ENABLE -DAPDAPTIVE_NKRO_ENABLE
+OPT_DEFS += -DAPDAPTIVE_NKRO_ENABLE
 OPT_DEFS += -DSTATE_NOTIFY_ENABLE
 
 KEYCHRON_COMMON_DIR = $(TOP_DIR)/keyboards/keychron/common
@@ -6,7 +6,6 @@ SRC += \
     $(KEYCHRON_COMMON_DIR)/keychron_task.c \
     $(KEYCHRON_COMMON_DIR)/keychron_common.c \
     $(KEYCHRON_COMMON_DIR)/keychron_raw_hid.c \
-    $(KEYCHRON_COMMON_DIR)/factory_test.c \
     $(KEYCHRON_COMMON_DIR)/backlit_indicator.c \
     $(KEYCHRON_COMMON_DIR)/eeconfig_kb.c \
     $(KEYCHRON_COMMON_DIR)/dfu_info.c \

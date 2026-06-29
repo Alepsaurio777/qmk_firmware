@@ -22,9 +22,7 @@
 #define HAL_USE_SPI TRUE
 #define HAL_USE_I2C TRUE
 
-#if defined(LK_WIRELESS_ENABLE)
-#    define PAL_USE_CALLBACKS TRUE
-#endif
+#define PAL_USE_CALLBACKS TRUE
 
 #ifdef LK_WIRELESS_ENABLE
 #    define HAL_USE_RTC TRUE
@@ -33,5 +31,4 @@
 #include_next <halconf.h>
 
 #undef STM32_ADC_ADCPRE
-#define STM32_ADC_ADCPRE ADC_CCR_ADCPRE_DIV8
-
+#define STM32_ADC_ADCPRE ADC_CCR_ADCPRE_DIV4

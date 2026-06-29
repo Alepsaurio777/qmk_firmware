@@ -21,7 +21,9 @@
 #include "eeprom.h"
 #include "eeprom_he.h"
 
+#if ANALOG_AUTO_CALIBRATION_ENABLE
 static bool calibration_dirty = false;
+#endif
 #include "usb_main.h"
 #include <stdio.h>
 #include "profile.h"
@@ -56,6 +58,40 @@ static bool calibration_dirty = false;
 
 #define TRAVEL_POLYNOMIAL(x) (CONST_A1 + ((float)(x)) * (CONST_B1 + ((float)(x)) * (CONST_C1 + ((float)(x)) * CONST_D1)))
 #define TRAVEL_POLY_REF_ZERO (TRAVEL_POLYNOMIAL(REF_ZERO_TRAVEL))
+
+#if ANALOG_FIXED_POINT_TRAVEL
+#    define TRAVEL_POLY_Q 34
+#    define TRAVEL_FIXED_Q 16
+#    define TRAVEL_POLY_Q_TO_FIXED_Q_SHIFT (TRAVEL_POLY_Q - TRAVEL_FIXED_Q)
+#    define TRAVEL_POLY_Q_TO_FIXED_Q_ROUND (1LL << (TRAVEL_POLY_Q_TO_FIXED_Q_SHIFT - 1))
+#    define TRAVEL_SCALE_FACTOR_Q_ONE ((uint32_t)TRAVEL_SCALE << TRAVEL_FIXED_Q)
+/*
+ * Equivalent to:
+ *   TRAVEL_POLYNOMIAL(x) - TRAVEL_POLYNOMIAL(REF_ZERO_TRAVEL)
+ * expressed as a cubic in t = REF_ZERO_TRAVEL - x.
+ *
+ * Coefficients are Q34:
+ *   t * (0.0810467104664 - 0.0000756612584*t + 0.0000000299368*t*t)
+ */
+#    define TRAVEL_POLY_T1_Q34 1392371884LL
+#    define TRAVEL_POLY_T2_Q34 (-1299851LL)
+#    define TRAVEL_POLY_T3_Q34 514LL
+
+static inline uint32_t travel_polynomial_delta_q16(uint16_t x) {
+    const uint32_t t = REF_ZERO_TRAVEL - x;
+    int64_t        v = TRAVEL_POLY_T2_Q34 + (int64_t)t * TRAVEL_POLY_T3_Q34;
+    v                = TRAVEL_POLY_T1_Q34 + (int64_t)t * v;
+    v                = (int64_t)t * v;
+
+    if (v <= 0) return 0;
+    return (uint32_t)((v + TRAVEL_POLY_Q_TO_FIXED_Q_ROUND) >> TRAVEL_POLY_Q_TO_FIXED_Q_SHIFT);
+}
+
+static inline uint32_t travel_scale_factor_to_q16(float factor) {
+    const float scaled = factor * (float)TRAVEL_SCALE * (float)(1UL << TRAVEL_FIXED_Q) + 0.5f;
+    return scaled >= (float)UINT32_MAX ? UINT32_MAX : (uint32_t)scaled;
+}
+#endif
 
 enum {
     CALIB_OFF = 0,
@@ -121,12 +157,17 @@ static calibrated_value_t saved_calib_values[MATRIX_ROWS][MATRIX_COLS];
 static analog_key_t       analog_key_matrix[MATRIX_ROWS][MATRIX_COLS];
 
 static uint16_t      calibrate_values[MATRIX_ROWS][MATRIX_COLS][CAL_SAMPL_CNT];
+#if ANALOG_AUTO_CALIBRATION_ENABLE
 static calibration_t auto_calib[MATRIX_ROWS][MATRIX_COLS];
+#endif
 static uint8_t       cali_state = CALIB_OFF;
 static uint8_t       last_cali_state;
 static uint8_t       cur_calib = 0;
 traval_config_t      regular;
 static float         scale_factor[MATRIX_ROWS][MATRIX_COLS];
+#if ANALOG_FIXED_POINT_TRAVEL
+static uint32_t      scale_factor_q16[MATRIX_ROWS][MATRIX_COLS];
+#endif
 static matrix_row_t  calib_state_matrix[MATRIX_ROWS];
 // Mark invalid key on abnormal value of manual zero travel calibration, for manufacturing use
 static matrix_row_t manual_calib_zero_invalid[MATRIX_ROWS];
@@ -144,6 +185,40 @@ uint8_t analog_matrix_get_travel(uint8_t row, uint8_t col) {
     return analog_key_matrix[row][col].travel;
 }
 
+#if ANALOG_DISABLE_OKMC_IN_GAMING_MODE || ANALOG_DISABLE_TOGGLE_IN_GAMING_MODE || ANALOG_DISABLE_GAMEPAD_IN_GAMING_MODE
+static inline uint8_t analog_matrix_base_mode(uint8_t row, uint8_t col) {
+    analog_matrix_profile_t *cur_prof = profile_get_current();
+    analog_key_config_t *    key_cfg  = &cur_prof->key_config[row][col];
+
+    return key_cfg->mode == AKM_GLOBAL ? cur_prof->global.mode : key_cfg->mode;
+}
+
+static inline uint8_t analog_matrix_effective_mode(uint8_t row, uint8_t col, uint8_t mode) {
+#    if ANALOG_DISABLE_OKMC_IN_GAMING_MODE
+    if (mode == AKM_DKS && analog_matrix_is_gaming_mode()) {
+        return analog_matrix_base_mode(row, col);
+    }
+#    endif
+#    if ANALOG_DISABLE_TOGGLE_IN_GAMING_MODE
+    if (mode == AKM_TOGGLE && analog_matrix_is_gaming_mode()) {
+        return analog_matrix_base_mode(row, col);
+    }
+#    endif
+#    if ANALOG_DISABLE_GAMEPAD_IN_GAMING_MODE
+    if (mode == AKM_GAMEPAD && analog_matrix_is_gaming_mode()) {
+        return analog_matrix_base_mode(row, col);
+    }
+#    endif
+    return mode;
+}
+#else
+static inline uint8_t analog_matrix_effective_mode(uint8_t row, uint8_t col, uint8_t mode) {
+    (void)row;
+    (void)col;
+    return mode;
+}
+#endif
+
 static uint8_t convert_to_travel(uint8_t row, uint8_t col, uint16_t value) {
     uint16_t travel;
     calibrated_value_t *p_calib = &calib_values[row][col];
@@ -151,7 +226,19 @@ static uint8_t convert_to_travel(uint8_t row, uint8_t col, uint16_t value) {
     int32_t x = (int32_t)value - (int32_t)p_calib->zero_travel + REF_ZERO_TRAVEL;
     if (x < 0 || x > REF_ZERO_TRAVEL) return 0;
 
+#if TOP_OUT_DEAD_ZONE_GAMING || TOP_OUT_DEAD_ZONE_TYPING
+    const uint8_t top_out_deadzone = analog_matrix_is_gaming_mode() ? TOP_OUT_DEAD_ZONE_GAMING : TOP_OUT_DEAD_ZONE_TYPING;
+    if (x > REF_ZERO_TRAVEL - top_out_deadzone) return 0;
+    x += top_out_deadzone;
+#endif
+
+#if ANALOG_FIXED_POINT_TRAVEL
+    const uint32_t travel_curve_q16 = travel_polynomial_delta_q16((uint16_t)x);
+    const uint64_t travel_fixed     = ((uint64_t)travel_curve_q16 * scale_factor_q16[row][col] + (1ULL << ((TRAVEL_FIXED_Q * 2) - 1))) >> (TRAVEL_FIXED_Q * 2);
+    travel = travel_fixed > UINT16_MAX ? UINT16_MAX : (uint16_t)travel_fixed;
+#else
     travel = (uint16_t)((TRAVEL_POLYNOMIAL(x) - TRAVEL_POLY_REF_ZERO) * scale_factor[row][col] * TRAVEL_SCALE + 0.5f);
+#endif
     if (travel > (FULL_TRAVEL_UNIT + 1) * TRAVEL_SCALE - 1) travel = (FULL_TRAVEL_UNIT + 1) * TRAVEL_SCALE - 1;
 
     // Saturate to the uint8_t return range instead of masking with 0xFF, which
@@ -166,6 +253,10 @@ static uint8_t convert_to_travel(uint8_t row, uint8_t col, uint16_t value) {
 static inline uint8_t scale_travel_u8(uint8_t v) {
     uint16_t scaled = (uint16_t)v * TRAVEL_SCALE;
     return scaled > UINT8_MAX ? UINT8_MAX : (uint8_t)scaled;
+}
+
+static inline uint8_t analog_raw_noise_filter(void) {
+    return analog_matrix_is_gaming_mode() ? ANALOG_RAW_NOISE_FILTER_GAMING : ANALOG_RAW_NOISE_FILTER_TYPING;
 }
 
 void update_key_config(uint8_t row, uint8_t col) {
@@ -197,7 +288,22 @@ void update_key_config(uint8_t row, uint8_t col) {
         p_key->regular.actn_pt = p_key_cfg->act_pt;
 
     // Update deactuaction point
-    p_key->regular.deactn_pt = p_key->regular.actn_pt > STATIC_HYSTERESIS ? p_key->regular.actn_pt - STATIC_HYSTERESIS : 0;
+    const bool gaming_mode = analog_matrix_is_gaming_mode();
+    uint8_t    static_hysteresis = gaming_mode ? STATIC_HYSTERESIS_GAMING : STATIC_HYSTERESIS_TYPING;
+    if (gaming_mode && row == ANALOG_GAMING_FAST_KEY_ROW && col == ANALOG_GAMING_FAST_KEY_COL) {
+        static_hysteresis = STATIC_HYSTERESIS_GAMING_FAST_KEY;
+    }
+
+#if ANALOG_ADAPTIVE_SHALLOW_HYSTERESIS_GAMING
+    if (gaming_mode) {
+        const uint8_t max_shallow_hysteresis = p_key->regular.actn_pt > 1 ? p_key->regular.actn_pt / 2 : 0;
+        if (static_hysteresis > max_shallow_hysteresis) {
+            static_hysteresis = max_shallow_hysteresis;
+        }
+    }
+#endif
+
+    p_key->regular.deactn_pt = p_key->regular.actn_pt > static_hysteresis ? p_key->regular.actn_pt - static_hysteresis : 0;
 
     // Update rapid trigger sensitivity
     if (p_key_cfg->rpd_trig_sen == 0)
@@ -217,6 +323,10 @@ void update_key_config(uint8_t row, uint8_t col) {
     p_key->rpd_trig_sen      = scale_travel_u8(p_key->rpd_trig_sen);
     p_key->rpd_trig_sen_rls  = scale_travel_u8(p_key->rpd_trig_sen_rls);
 
+    // Save scaled RT sensitivity before advance-mode union writes may
+    // overwrite it (rpd_trig_sen shares storage with okmc_idx/js_axis/hold).
+    const uint8_t saved_rpd_trig_sen = p_key->rpd_trig_sen;
+
     // Update advance mode information
     if (p_key_cfg->adv_mode == AKM_DKS && p_key_cfg->okmc_idx < OKMC_COUNT) {
         p_key->okmc_idx = p_key_cfg->okmc_idx;
@@ -224,6 +334,14 @@ void update_key_config(uint8_t row, uint8_t col) {
         p_key->js_axis = p_key_cfg->js_axis;
     } else if (p_key_cfg->adv_mode == AKM_TOGGLE) {
         p_key->hold = 0;
+    }
+
+    // When gaming mode overrides an advanced mode back to the base mode
+    // (Regular or Rapid), the union writes above clobber rpd_trig_sen.
+    // Restore it so Rapid Trigger keeps the correct sensitivity.
+    if (p_key_cfg->adv_mode != 0 &&
+        analog_matrix_effective_mode(row, col, p_key->mode) != p_key_cfg->adv_mode) {
+        p_key->rpd_trig_sen = saved_rpd_trig_sen;
     }
 }
 
@@ -262,6 +380,9 @@ static inline void update_scale_factor(uint8_t row, uint8_t col) {
         int32_t x_signed = (int32_t)p_calib->full_travel - offset;
         if (x_signed < 0 || x_signed > REF_ZERO_TRAVEL) {
             scale_factor[row][col] = 1.0f;
+#if ANALOG_FIXED_POINT_TRAVEL
+            scale_factor_q16[row][col] = TRAVEL_SCALE_FACTOR_Q_ONE;
+#endif
             return;
         }
         uint16_t x = (uint16_t)x_signed;
@@ -272,8 +393,13 @@ static inline void update_scale_factor(uint8_t row, uint8_t col) {
         } else {
             scale_factor[row][col] = 1.0f;
         }
-    } else
+    } else {
         scale_factor[row][col] = 1.0f;
+    }
+
+#if ANALOG_FIXED_POINT_TRAVEL
+    scale_factor_q16[row][col] = travel_scale_factor_to_q16(scale_factor[row][col]);
+#endif
 
 }
 
@@ -397,17 +523,36 @@ static bool calibrate(void) {
                     if (cali_state == CALIB_ZERO_TRAVEL_POWER_ON) valid = false;
                     manual_calib_zero_invalid[r] |= 0x01 << c;
                     if (avg_val < DEFAULT_ZERO_TRAVEL_VALUE - DEFAULT_FULL_RANGE / 5 && cali_state == CALIB_ZERO_TRAVEL_POWER_ON) {
+#if ANALOG_AUTO_CALIBRATION_ENABLE
                         auto_calib[r][c].pressed = true;
+#endif
                     }
                 } else {
                     // new_calibrated_value[r][c] = avg_val;
                     avg_val -= ZERO_TRAVEL_DEAD_ZONE;
-                    if (abs(avg_val - calib_values[r][c].zero_travel) > 30) {
+                    // Force update if it's the power-on calibration to compensate for temperature
+                    // drift, otherwise use the 30-unit threshold to filter noise.
+                    int16_t delta = avg_val - calib_values[r][c].zero_travel;
+                    if (cali_state == CALIB_ZERO_TRAVEL_POWER_ON || abs(delta) > 30) {
+#if ANALOG_AUTO_CALIBRATION_ENABLE
                         auto_calib[r][c].new_calib_value = true;
-                        // Update calibration value
+#endif
                         calib_values[r][c].zero_travel = avg_val;
 
-                        if (cali_state == CALIB_ZERO_TRAVEL_POWER_ON) calib_values[r][c].full_travel = avg_val - DEFAULT_FULL_RANGE;
+                        if (cali_state == CALIB_ZERO_TRAVEL_POWER_ON) {
+                            if (calibrated & CALI_FULL_TRAVEL) {
+                                // Preserve user's manual calibration by shifting it with temperature
+                                int32_t shifted_full = (int32_t)calib_values[r][c].full_travel + delta;
+                                if (shifted_full < VALID_ANALOG_RAW_VALUE_MIN)
+                                    shifted_full = VALID_ANALOG_RAW_VALUE_MIN;
+                                else if (shifted_full > VALID_ANALOG_RAW_VALUE_MAX)
+                                    shifted_full = VALID_ANALOG_RAW_VALUE_MAX;
+                                calib_values[r][c].full_travel = (uint16_t)shifted_full;
+                            } else {
+                                // No manual calibration, use generic fallback
+                                calib_values[r][c].full_travel = avg_val - DEFAULT_FULL_RANGE;
+                            }
+                        }
                     }
                 }
             }
@@ -455,6 +600,11 @@ static bool calibrate(void) {
         }
 
     } else if (cali_state == CALIB_ZERO_TRAVEL_POWER_ON) {
+        // Recalculate scale factors after temperature correction even though
+        // the delta-shift preserves the zero-full range in the ideal case;
+        // the clamp above can break that invariant, and this only runs once
+        // at boot so the cost is negligible.
+        update_scale_factors();
         cali_state = CALIB_OFF;
     }
 
@@ -473,6 +623,7 @@ void calibration_validate(void) {
         }
 }
 
+#if ANALOG_AUTO_CALIBRATION_ENABLE
 void auto_calibration_init(void) {
     for (uint8_t r = 0; r < MATRIX_ROWS; r++)
         for (uint8_t c = 0; c < MATRIX_COLS; c++) {
@@ -590,6 +741,9 @@ void auto_caliration_check(uint8_t row, uint8_t col, uint16_t value) {
             break;
     }
 }
+#else
+void auto_calibration_init(void) {}
+#endif
 
 void analog_matrix_eeconfig_init(void) {
     bool reset_profiles = false;
@@ -602,6 +756,20 @@ void analog_matrix_eeconfig_init(void) {
 
     uint8_t *buf = (uint8_t *)malloc(EECONFIG_SIZE_ANALOG_MATRIX);
     if (!buf) {
+        // Cannot load saved config from EEPROM; initialize all critical
+        // data structures with safe defaults so the keyboard boots
+        // functional (all keys at default actuation) instead of dead.
+        memset(calib_values, 0, sizeof(calib_values));
+        memset(saved_calib_values, 0, sizeof(saved_calib_values));
+        calibrated = 0;
+        calibration_validate();
+        update_default_travel();
+        memcpy(calib_values, saved_calib_values, sizeof(saved_calib_values));
+        memset(analog_key_matrix, 0, sizeof(analog_key_matrix));
+        update_travel_configs();
+        update_scale_factors();
+        auto_calibration_init();
+        cali_state = CALIB_ZERO_TRAVEL_POWER_ON;
         return;
     }
     memset(buf, 0, EECONFIG_SIZE_ANALOG_MATRIX);
@@ -707,21 +875,32 @@ bool update_raw_value(uint8_t row, uint8_t col, uint16_t value) {
         analog_key_matrix[row][col].value     = value; // for debug
         return false;
     }
+#if ANALOG_AUTO_CALIBRATION_ENABLE
     auto_caliration_check(row, col, value);
+#endif
 
     analog_key_t *k = &analog_key_matrix[row][col];
+
+    const uint8_t raw_noise_filter = analog_raw_noise_filter();
+    if (raw_noise_filter) {
+        const uint16_t last_val = k->last_val;
+        const uint16_t delta    = value > last_val ? value - last_val : last_val - value;
+        if (delta < raw_noise_filter) return false;
+    }
 
     k->last_val = value;
     k->value    = value;
     k->travel   = convert_to_travel(row, col, value);
 
-    if (k->travel == k->last_travel && k->mode != AKM_RAPID) return false;
+    const uint8_t mode = analog_matrix_effective_mode(row, col, k->mode);
+
+    if (k->travel == k->last_travel) return false;
 
     k->last_travel = k->travel;
 
     bool ret = false;
 
-    switch (k->mode) {
+    switch (mode) {
         case AKM_RAPID:
             ret = rapid_trigger_action(k);
             break;
@@ -761,7 +940,7 @@ uint8_t analog_matrix_get_key_mode(uint8_t row, uint8_t col) {
 bool analog_matrix_get_key_state(uint8_t row, uint8_t col) {
     analog_key_t *k = &analog_key_matrix[row][col];
 
-    switch (k->mode) {
+    switch (analog_matrix_effective_mode(row, col, k->mode)) {
         case AKM_REGULAR: // fall through
             return (k->state == AKS_REGULAR_PRESSED);
 
@@ -835,6 +1014,7 @@ bool get_realtime_travel(uint8_t *data) {
 void analog_matrix_task(void) {
     calibrate();
 
+#if ANALOG_AUTO_CALIBRATION_ENABLE
     extern uint32_t last_input_activity_time(void);
     if (calibration_dirty && timer_elapsed32(last_input_activity_time()) > 1000) {
         extern matrix_row_t analog_raw_matrix[MATRIX_ROWS];
@@ -850,6 +1030,7 @@ void analog_matrix_task(void) {
             calibration_dirty = false;
         }
     }
+#endif
 
     profile_indication_timer_check();
     socd_action();

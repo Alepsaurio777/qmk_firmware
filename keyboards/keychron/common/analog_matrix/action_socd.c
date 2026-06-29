@@ -29,12 +29,42 @@ extern matrix_row_t analog_raw_matrix[MATRIX_ROWS];
 extern matrix_row_t raw_matrix[MATRIX_ROWS];
 extern matrix_row_t changed_matrix[MATRIX_ROWS];
 
+static bool socd_active;
+static uint8_t socd_state[SOCD_COUNT];
+
+void socd_update_active_state(void) {
+    socd_config_t *socd = profile_get_current()->socd;
+    socd_active         = false;
+    memset(socd_state, 0, sizeof(socd_state));
+    for (uint8_t i = 0; i < SOCD_COUNT; i++) {
+        if (socd[i].type) {
+            socd_active = true;
+            return;
+        }
+    }
+}
+
 void socd_action(void) {
+#if ANALOG_DISABLE_SOCD_IN_GAMING_MODE
+    if (analog_matrix_is_gaming_mode()) {
+        for (uint8_t row = 0; row < MATRIX_ROWS; row++) {
+            raw_matrix[row] = analog_raw_matrix[row];
+        }
+        return;
+    }
+#endif
+
+    if (!socd_active) {
+        for (uint8_t row = 0; row < MATRIX_ROWS; row++) {
+            raw_matrix[row] = analog_raw_matrix[row];
+        }
+        return;
+    }
+
     matrix_row_t socd_mask[MATRIX_ROWS];
     memset(socd_mask, 0xFF, sizeof(socd_mask));
 
     socd_config_t *socd = profile_get_current()->socd;
-    static uint8_t state[SOCD_COUNT];
     bool           keep_last_state;
     uint8_t        row1, row2, col1, col2;
     for (uint8_t i = 0; i < SOCD_COUNT; i++) {
@@ -55,9 +85,9 @@ void socd_action(void) {
                             if (socd[i].type == SOCD_PRI_DEEPER_TRAVEL_SINGLE) {
                                 keep_last_state = true;
                             }
-                        } else if (state[i] == KEY_2_ACTIVE && analog_matrix_get_travel(row1, col1) > analog_matrix_get_travel(row2, col2)) {
+                        } else if (socd_state[i] == KEY_2_ACTIVE && analog_matrix_get_travel(row1, col1) > analog_matrix_get_travel(row2, col2)) {
                             socd_mask[row2] &= ~(0x01 << col2);
-                        } else if (state[i] == KEY_1_ACTIVE && analog_matrix_get_travel(row1, col1)  < analog_matrix_get_travel(row2, col2)) {
+                        } else if (socd_state[i] == KEY_1_ACTIVE && analog_matrix_get_travel(row1, col1)  < analog_matrix_get_travel(row2, col2)) {
                             socd_mask[row1] &= ~(0x01 << col1);
                         } else
                             keep_last_state = true;
@@ -66,11 +96,11 @@ void socd_action(void) {
                     case SOCD_PRI_LAST_KEYSTROKE:
                         if ((raw_matrix[row1] & (0x01 << col1)) && (analog_raw_matrix[row2] & (0x01 << col2)) && (changed_matrix[row2] & (0x01 << col2))) {
                             socd_mask[row1] &= ~(0x01 << col1);
-                            state[i] = KEY_2_ACTIVE;
+                            socd_state[i] = KEY_2_ACTIVE;
 
                         } else if ((raw_matrix[row2] & (0x01 << col2)) && (analog_raw_matrix[row1] & (0x01 << col1)) && (changed_matrix[row1] & (0x01 << col1))) {
                             socd_mask[row2] &= ~(0x01 << col2);
-                            state[i] = KEY_1_ACTIVE;
+                            socd_state[i] = KEY_1_ACTIVE;
 
                         } else
                             keep_last_state = true;
@@ -78,33 +108,33 @@ void socd_action(void) {
 
                     case SOCD_PRI_KEY_1:
                         socd_mask[row2] &= ~(0x01 << col2);
-                        state[i] = KEY_1_ACTIVE;
+                        socd_state[i] = KEY_1_ACTIVE;
                         break;
 
                     case SOCD_PRI_KEY_2:
                         socd_mask[row1] &= ~(0x01 << col1);
-                        state[i] = KEY_2_ACTIVE;
+                        socd_state[i] = KEY_2_ACTIVE;
                         break;
 
                     case SOCD_PRI_NEUTRAL:
                         socd_mask[row1] &= ~(0x01 << col1);
                         socd_mask[row2] &= ~(0x01 << col2);
-                        state[i] = 0;
+                        socd_state[i] = 0;
                         break;
 
                     default:
                         break;
                 }
             } else if (analog_raw_matrix[row1] & (0x01 << col1)) {
-                state[i] = KEY_1_ACTIVE;
+                socd_state[i] = KEY_1_ACTIVE;
             } else if (analog_raw_matrix[row2] & (0x01 << col2)) {
-                state[i] = KEY_2_ACTIVE;
+                socd_state[i] = KEY_2_ACTIVE;
             }
 
             if (keep_last_state) {
-                if (state[i] == KEY_1_ACTIVE)
+                if (socd_state[i] == KEY_1_ACTIVE)
                     socd_mask[row2] &= ~(0x01 << col2);
-                else if (state[i] == KEY_2_ACTIVE)
+                else if (socd_state[i] == KEY_2_ACTIVE)
                     socd_mask[row1] &= ~(0x01 << col1);
             }
         }

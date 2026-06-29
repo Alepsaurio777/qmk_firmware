@@ -14,7 +14,6 @@
         "mousekey": true,
         "dip_switch": true,
         "nkro": true,
-        "rgb_matrix": true,
         "raw": true,
         "send_string": true
     },
@@ -61,9 +60,6 @@
             "logical_size": 6144,
             "backing_size": 12288
         }
-    },
-    "build": {
-        "debounce_type": "custom"
     },
     "debounce": 0
 }

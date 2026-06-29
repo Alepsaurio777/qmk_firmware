@@ -141,6 +141,8 @@ void profile_init(bool reset) {
 
         free(buf);
     }
+
+    socd_update_active_state();
 }
 
 analog_matrix_profile_t *profile_get(uint8_t index) {
@@ -170,6 +172,7 @@ bool profile_select(uint8_t prof_idx, bool indication, bool save_eeprom) {
             analog_matrix_eeprom_update(&prof_idx, (void *)OFFSET_CURRENT_PROFILE, 1);
         }
         analog_matrix_clear_advance_keys();
+        socd_update_active_state();
     }
     if (indication) {
 #    ifdef LED_MATRIX_ENABLE
@@ -208,6 +211,7 @@ bool profile_set_traval(uint8_t prof_idx, uint8_t mode, uint8_t act_pt, uint8_t 
         prof->global.rpd_trig_sen       = sens;
         prof->global.rpd_trig_sen_deact = rls_sens;
         memset(row, 0xFF, sizeof(row[0]) * MATRIX_ROWS);
+        if (prof_idx == profile_get_current_index()) update_travel_configs();
     } else {
         for (uint8_t r = 0; r < MATRIX_ROWS; r++)
             for (uint8_t c = 0; c < MATRIX_COLS; c++) {
@@ -308,6 +312,8 @@ bool profile_set_socd(uint8_t *data) {
         memset(&prof->socd[index], 0, sizeof(socd_config_t));
     }
 
+    if (prof_idx == profile_get_current_index()) socd_update_active_state();
+
     return true;
 }
 
@@ -343,12 +349,20 @@ bool profile_reset(uint8_t prof_index) {
         }
 
     profile_save(prof_index);
+    if (prof_index == profile_get_current_index()) socd_update_active_state();
 
     return true;
 }
 
 void process_profile_select_combo(void) {
     extern matrix_row_t virtual_matrix[MATRIX_ROWS];
+
+#if ANALOG_DISABLE_PROFILE_COMBO_IN_GAMING_MODE
+    if (analog_matrix_is_gaming_mode()) {
+        prof_combo = 0;
+        return;
+    }
+#endif
 
     if (prof_combo & KEY_PRESS_FN) {
         if ((prof_combo & KEY_PRESS_P) == 0 && KEY_MASK(PROF_TRIG_KEY_ROW, PROF_TRIG_KEY_COL)) {

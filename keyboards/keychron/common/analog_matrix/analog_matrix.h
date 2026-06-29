@@ -18,6 +18,7 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+#include "action_layer.h"
 #include "keycodes.h"
 #include "matrix.h"
 #include "analog_matrix_eeconfig.h"
@@ -55,6 +56,46 @@
 #    define STATIC_HYSTERESIS 5
 #endif
 
+#ifndef STATIC_HYSTERESIS_GAMING
+#    define STATIC_HYSTERESIS_GAMING STATIC_HYSTERESIS
+#endif
+
+#ifndef STATIC_HYSTERESIS_TYPING
+#    define STATIC_HYSTERESIS_TYPING STATIC_HYSTERESIS
+#endif
+
+#ifndef STATIC_HYSTERESIS_GAMING_FAST_KEY
+#    define STATIC_HYSTERESIS_GAMING_FAST_KEY STATIC_HYSTERESIS_GAMING
+#endif
+
+#ifndef ANALOG_ADAPTIVE_SHALLOW_HYSTERESIS_GAMING
+#    define ANALOG_ADAPTIVE_SHALLOW_HYSTERESIS_GAMING 0
+#endif
+
+#ifndef ANALOG_GAMING_FAST_KEY_ROW
+#    define ANALOG_GAMING_FAST_KEY_ROW 0xFF
+#endif
+
+#ifndef ANALOG_GAMING_FAST_KEY_COL
+#    define ANALOG_GAMING_FAST_KEY_COL 0xFF
+#endif
+
+#ifndef ANALOG_CONTINUOUS_RT_KEY1_ROW
+#    define ANALOG_CONTINUOUS_RT_KEY1_ROW ANALOG_GAMING_FAST_KEY_ROW
+#endif
+
+#ifndef ANALOG_CONTINUOUS_RT_KEY1_COL
+#    define ANALOG_CONTINUOUS_RT_KEY1_COL ANALOG_GAMING_FAST_KEY_COL
+#endif
+
+#ifndef ANALOG_CONTINUOUS_RT_KEY2_ROW
+#    define ANALOG_CONTINUOUS_RT_KEY2_ROW 0xFF
+#endif
+
+#ifndef ANALOG_CONTINUOUS_RT_KEY2_COL
+#    define ANALOG_CONTINUOUS_RT_KEY2_COL 0xFF
+#endif
+
 #ifndef RAPID_TRIGGER_TICK
 #    define RAPID_TRIGGER_TICK 10
 #endif
@@ -66,6 +107,30 @@
 #ifndef ZERO_TRAVEL_DEAD_ZONE
 #    define ZERO_TRAVEL_DEAD_ZONE 20
 #endif
+
+#ifndef TOP_OUT_DEAD_ZONE_GAMING
+#    define TOP_OUT_DEAD_ZONE_GAMING 0
+#endif
+
+#ifndef TOP_OUT_DEAD_ZONE_TYPING
+#    define TOP_OUT_DEAD_ZONE_TYPING 0
+#endif
+
+#ifndef ANALOG_RAW_NOISE_FILTER_GAMING
+#    define ANALOG_RAW_NOISE_FILTER_GAMING 5
+#endif
+
+#ifndef ANALOG_RAW_NOISE_FILTER_TYPING
+#    define ANALOG_RAW_NOISE_FILTER_TYPING 5
+#endif
+
+#ifndef ANALOG_GAMING_LAYERS_MASK
+#    define ANALOG_GAMING_LAYERS_MASK ((layer_state_t)0x03)
+#endif
+
+static inline bool analog_matrix_is_gaming_mode(void) {
+    return ((layer_state | default_layer_state) & ~ANALOG_GAMING_LAYERS_MASK) == 0;
+}
 
 #ifndef BOTTOM_DEAD_ZONE
 #    define BOTTOM_DEAD_ZONE 38
@@ -79,6 +144,38 @@
 
 #ifndef ANALOG_DEBOUNCE_TIME
 #    define ANALOG_DEBOUNCE_TIME 3
+#endif
+
+#ifndef ANALOG_FIXED_POINT_TRAVEL
+#    define ANALOG_FIXED_POINT_TRAVEL 0
+#endif
+
+#ifndef ANALOG_AUTO_CALIBRATION_ENABLE
+#    define ANALOG_AUTO_CALIBRATION_ENABLE 1
+#endif
+
+#ifndef ANALOG_DISABLE_OKMC_IN_GAMING_MODE
+#    define ANALOG_DISABLE_OKMC_IN_GAMING_MODE 0
+#endif
+
+#ifndef ANALOG_DISABLE_TOGGLE_IN_GAMING_MODE
+#    define ANALOG_DISABLE_TOGGLE_IN_GAMING_MODE 0
+#endif
+
+#ifndef ANALOG_DISABLE_GAMEPAD_IN_GAMING_MODE
+#    define ANALOG_DISABLE_GAMEPAD_IN_GAMING_MODE 0
+#endif
+
+#ifndef ANALOG_DISABLE_SOCD_IN_GAMING_MODE
+#    define ANALOG_DISABLE_SOCD_IN_GAMING_MODE 0
+#endif
+
+#ifndef ANALOG_DISABLE_PROFILE_COMBO_IN_GAMING_MODE
+#    define ANALOG_DISABLE_PROFILE_COMBO_IN_GAMING_MODE 0
+#endif
+
+#ifndef ANALOG_CONTINUOUS_RAPID_TRIGGER_IN_GAMING_MODE
+#    define ANALOG_CONTINUOUS_RAPID_TRIGGER_IN_GAMING_MODE 0
 #endif
 
 // Threshold value when the magnet switch is not installed
