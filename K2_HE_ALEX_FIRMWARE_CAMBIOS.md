@@ -387,6 +387,11 @@ defensivo:
   `sizeof(saved_calib_values)` para expresar el tamano real del destino.
 - `analog_matrix.c`: al guardar calibracion en EEPROM externa, se invalida el
   flag, se escribe el payload y solo despues se marca como valido.
+- `analog_matrix.c`: la histeresis adaptativa mantiene un piso de `1` cuando
+  hay actuation positivo, evitando un borde de histeresis cero con actuation
+  extremadamente superficial.
+- `analog_matrix_scan.c`: se elimino una llamada duplicada a `matrix_scan_kb()`;
+  QMK ya la llama desde `matrix_scan()`.
 - `profile.c`: se corrigio un comentario de `PROF_2_KEY_COL` etiquetado como
   Profile 3.
 - `sqrt.c`: `sqrt_uint32()` evita overflow en el calculo inicial para no caer
@@ -435,6 +440,9 @@ El debounce analogico minimo queda separado del debounce QMK:
 
 No se debe bajar a `0`; `analog_matrix_scan.c` ahora falla en compilacion si se
 intenta hacerlo.
+
+El keymap `alex` no redefine `USB_POLLING_INTERVAL_MS`; QMK ya usa `1 ms` por
+default para USB full-speed, asi que mantener ese define era redundante.
 
 `via_json/k2_he_ansi.json` tambien fue limpiado para este build ANSI USB:
 

@@ -369,8 +369,6 @@ bool matrix_scan_custom(matrix_row_t current_matrix[]) {
     bool changed = memcmp(raw_matrix, last_raw_matrix, sizeof(last_raw_matrix)) != 0;
     // changed = debounce(raw_matrix, matrix, MATRIX_ROWS, changed);
 
-    matrix_scan_kb();
-
     return matrix_changed | changed;
 }
 

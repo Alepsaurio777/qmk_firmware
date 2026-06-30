@@ -1,8 +1,5 @@
 #pragma once
 
-// Force 1000Hz polling rate for minimum USB latency
-#define USB_POLLING_INTERVAL_MS 1
-
 #ifdef RGB_MATRIX_ENABLE
 // Optimize RGB matrix for maximum performance
 // Limit the max brightness to reduce power draw
@@ -70,4 +67,3 @@
 #undef RETAIL_DEMO_ENABLE
 
 #endif
-

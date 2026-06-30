@@ -303,6 +303,10 @@ void update_key_config(uint8_t row, uint8_t col) {
     }
 #endif
 
+    if (static_hysteresis == 0 && p_key->regular.actn_pt > 0) {
+        static_hysteresis = 1;
+    }
+
     p_key->regular.deactn_pt = p_key->regular.actn_pt > static_hysteresis ? p_key->regular.actn_pt - static_hysteresis : 0;
 
     // Update rapid trigger sensitivity
