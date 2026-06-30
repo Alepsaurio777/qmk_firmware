@@ -47,22 +47,45 @@ static inline bool rt_predictive_enabled(const analog_key_t *key) {
 #endif
 }
 
-static inline bool rt_predictive_press_ready(const analog_key_t *key, bool predictive_rt) {
+static inline bool rt_predictive_downstroke_ready(const analog_key_t *key, bool predictive_rt, uint8_t target) {
     if (!predictive_rt) return false;
 
-    // Initial press prediction only. The key must be moving downward fast enough
-    // and already be close to the Launcher actuation point.
+    // Prediction only on a clear downward stroke, close to the target point.
     if (key->travel <= key->last_travel) return false;
 
     const uint8_t delta = key->travel - key->last_travel;
     if (delta < ANALOG_PREDICTIVE_ACTUATION_MIN_DELTA) return false;
     if (key->travel < MIN_ACTUATION) return false;
 
-    return (uint16_t)key->travel + ANALOG_PREDICTIVE_ACTUATION_ADVANCE >= key->regular.actn_pt;
+    return (uint16_t)key->travel + ANALOG_PREDICTIVE_ACTUATION_ADVANCE >= target;
+}
+
+static inline bool rt_predictive_press_ready(const analog_key_t *key, bool predictive_rt) {
+    return rt_predictive_downstroke_ready(key, predictive_rt, key->regular.actn_pt);
+}
+
+static inline bool rt_predictive_repress_ready(const analog_key_t *key, bool continuous_rt, bool predictive_rt) {
+    uint8_t target = key->rapid.actn_pt;
+    if (!continuous_rt && target < key->regular.actn_pt) {
+        target = key->regular.actn_pt;
+    }
+
+    return rt_predictive_downstroke_ready(key, predictive_rt, target);
 }
 
 static inline bool rt_regular_release_ready(const analog_key_t *key, bool continuous_rt) {
     return continuous_rt ? key->travel == 0 : key->travel <= key->regular.deactn_pt;
+}
+
+static inline bool rt_dynamic_release_ready(const analog_key_t *key, bool continuous_rt) {
+    if (key->travel > key->rapid.deactn_pt) return false;
+
+    // For whitelisted Continuous RT keys, do not require the extra bottom guard:
+    // Launcher's RT release sensitivity becomes the release threshold. This is
+    // intentionally more responsive for Space/Shift spam experiments.
+    if (continuous_rt) return true;
+
+    return (int32_t)key->travel < rt_bottom_guard(key);
 }
 
 static inline bool rt_repress_ready(const analog_key_t *key, bool continuous_rt) {
@@ -91,7 +114,7 @@ bool rapid_trigger_action(analog_key_t *key) {
             if (rt_regular_release_ready(key, continuous_rt)) {
                 key->state = AKS_REGULAR_RELEASED;
                 changed    = true;
-            } else if (key->travel <= key->rapid.deactn_pt && (int32_t)key->travel < rt_bottom_guard(key)) {
+            } else if (rt_dynamic_release_ready(key, continuous_rt)) {
                 key->state       = AKS_RAPID_RELEASED;
                 changed          = true;
                 update_rapid_pts = -1;
@@ -108,7 +131,7 @@ bool rapid_trigger_action(analog_key_t *key) {
                 key->state = AKS_REGULAR_RELEASED;
             }
             // Press again
-            else if (rt_repress_ready(key, continuous_rt)) {
+            else if (rt_repress_ready(key, continuous_rt) || rt_predictive_repress_ready(key, continuous_rt, predictive_rt)) {
                 key->state       = AKS_RAPID_PRESSED;
                 changed          = true;
                 update_rapid_pts = 1;
@@ -125,7 +148,7 @@ bool rapid_trigger_action(analog_key_t *key) {
             if (rt_regular_release_ready(key, continuous_rt)) {
                 key->state = AKS_REGULAR_RELEASED;
                 changed    = true;
-            } else if (key->travel <= key->rapid.deactn_pt && (int32_t)key->travel < rt_bottom_guard(key)) {
+            } else if (rt_dynamic_release_ready(key, continuous_rt)) {
                 key->state       = AKS_RAPID_RELEASED;
                 changed          = true;
                 update_rapid_pts = -1;

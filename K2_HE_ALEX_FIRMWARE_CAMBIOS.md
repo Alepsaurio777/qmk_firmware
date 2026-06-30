@@ -313,6 +313,12 @@ actuacion predictiva inicial:
 C:\Users\Alex\keychron-qmk\K2HE_ALEX_EXPERIMENT_CONTINUOUS_RT_PREDICTIVE_space_lshift_adc28_settle20_hc164stock_powerOnCal_security_launcher.bin
 ```
 
+La variante v2 esta enfocada especificamente en spam de Space/Shift:
+
+```text
+C:\Users\Alex\keychron-qmk\K2HE_ALEX_2026-06-30_EXPERIMENT_RT_PREDICTIVE_V2_space_lshift_release_repress_adc28_settle20_hc164stock.bin
+```
+
 La logica experimental solo actua si:
 
 - El modo Gaming esta activo.
@@ -331,6 +337,14 @@ experimento el adelanto es conservador:
 
 Eso equivale aproximadamente a `0.1 mm` de adelanto y exige una bajada minima
 de `0.1 mm` entre muestras para evitar disparos por ruido.
+
+En v2 se agregan dos cambios mas, solo para las teclas whitelisted con
+Continuous RT:
+
+- Release dinamico sin `BOTTOM_DEAD_ZONE`: el umbral de release lo decide la
+  sensibilidad RT del Launcher, no el guard extra de fondo.
+- Re-press predictivo: despues de un rapid release, una bajada rapida que ya
+  esta a menos de `0.1 mm` del nuevo punto dinamico puede mandar `pressed`.
 
 ### Logica
 
