@@ -115,6 +115,9 @@ layout durante una partida.
 SOCD se dejo desactivado en Gaming por decision de diseno: el teclado envia las
 direcciones reales y el juego decide que hacer.
 
+`FN_GAMING` se dejo como `KC_NO`. La capa `GAMING_FN` permanece reservada para
+mantener el orden de capas, pero no se puede alcanzar desde el layout Gaming.
+
 ## Motor analogico y latencia
 
 ### Fixed-point travel
@@ -376,6 +379,13 @@ El debounce analogico minimo queda separado del debounce QMK:
 
 No se debe bajar a `0`; `analog_matrix_scan.c` ahora falla en compilacion si se
 intenta hacerlo.
+
+`via_json/k2_he_ansi.json` tambien fue limpiado para este build ANSI USB:
+
+- Se quito el menu `qmk_lighting`.
+- Se quitaron custom keycodes wireless (`BTH1`, `BTH2`, `BTH3`, `2.4G`, `Batt`).
+- `PROF1..PROF3` quedan alineados con los valores reales del firmware cuando
+  wireless esta apagado.
 
 ## Cambios rechazados o pospuestos
 

@@ -17,6 +17,7 @@
 #include QMK_KEYBOARD_H
 #include "analog_matrix.h"
 #include "keychron_common.h"
+#include "profile.h"
 
 enum layers {
     GAMING_BASE,
@@ -25,7 +26,7 @@ enum layers {
     WIN_FN,
 };
 
-#define FN_GAMING MO(GAMING_FN)
+#define FN_GAMING KC_NO
 #define FN_WIN MO(WIN_FN)
 
 // clang-format off
@@ -63,8 +64,6 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
         _______,  _______,  _______,                                _______,                                _______,  _______,  _______,  _______,  _______,  _______)
 };
 // clang-format on
-
-extern bool profile_select(uint8_t prof_idx, bool indication, bool save_eeprom);
 
 static inline bool is_layer_switch_keycode(uint16_t keycode) {
     return IS_QK_LAYER_TAP(keycode) ||
