@@ -808,7 +808,7 @@ void analog_matrix_eeconfig_init(void) {
                 calibrated   = 0;
                 i2c_fallback = true;
             } else if (calibrated) {
-                if (!he_eeprom_read_block(saved_calib_values, (void *)(EXTERNAL_EEPROM_OFFSET + OFFSET_CALIBRATED_DATA_START), sizeof(calib_values))) {
+                if (!he_eeprom_read_block(saved_calib_values, (void *)(EXTERNAL_EEPROM_OFFSET + OFFSET_CALIBRATED_DATA_START), sizeof(saved_calib_values))) {
                     calibrated   = 0;
                     i2c_fallback = true;
                 } else {

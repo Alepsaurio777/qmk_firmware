@@ -108,14 +108,15 @@ void send_analog_matrix(uint8_t *data, uint8_t length) {
 #    endif
 
 void get_firmware_version(uint8_t *data) {
-    uint8_t i = 0;
-    data[i++] = 'v';
-    if ((DEVICE_VER & 0xF000) != 0) itoa((DEVICE_VER >> 12), (char *)&data[i++], 16);
-    itoa((DEVICE_VER >> 8) & 0xF, (char *)&data[i++], 16);
+    static const char hex_digits[] = "0123456789abcdef";
+    uint8_t           i            = 0;
+    data[i++]                      = 'v';
+    if ((DEVICE_VER & 0xF000) != 0) data[i++] = hex_digits[(DEVICE_VER >> 12) & 0xF];
+    data[i++] = hex_digits[(DEVICE_VER >> 8) & 0xF];
     data[i++] = '.';
-    itoa((DEVICE_VER >> 4) & 0xF, (char *)&data[i++], 16);
+    data[i++] = hex_digits[(DEVICE_VER >> 4) & 0xF];
     data[i++] = '.';
-    itoa(DEVICE_VER & 0xF, (char *)&data[i++], 16);
+    data[i++] = hex_digits[DEVICE_VER & 0xF];
     data[i++] = ' ';
     memcpy(&data[i], QMK_BUILDDATE, sizeof(QMK_BUILDDATE));
     i += sizeof(QMK_BUILDDATE);

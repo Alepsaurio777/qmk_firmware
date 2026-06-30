@@ -256,7 +256,7 @@ void suspend_wakeup_init_kb(void) {
 #    else
 #        if defined(RGB_MATRIX_ENABLE)
             // Only rgb matrix is support
-            rgb_matrix_set_color(i, 255, 0, 0);
+            rgb_matrix_set_color(idx_list[i], 255, 0, 0);
 #        endif
 #    endif
         }

@@ -68,7 +68,7 @@
 #        endif
 #    endif
 
-/* Profile 3 Key */
+/* Profile 2 Key */
 #    ifndef PROF_2_KEY_COL
 #        define PROF_2_KEY_COL (PROF_KEY_COL_OFFSET + 3)
 #    endif

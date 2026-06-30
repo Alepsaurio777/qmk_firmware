@@ -336,6 +336,21 @@ Aunque esta apagado en este build, se corrigieron:
 - Copia de UID del MCU con aritmetica de puntero incorrecta.
 - Nibble duplicado en version reportada.
 
+### Limpiezas compartidas
+
+Se corrigieron detalles pequenos en codigo comun que no afectan el hot path del
+K2 HE, pero evitan reportes repetidos en auditorias y dejan el firmware mas
+defensivo:
+
+- `backlit_indicator.c`: al despertar de suspend con WinLock, el indicador RGB
+  usa `idx_list[i]` en vez de `i`.
+- `keychron_raw_hid.c`: la version de firmware se escribe nibble por nibble en
+  vez de usar `itoa()` sobre posiciones solapadas.
+- `analog_matrix.c`: la lectura de calibracion desde EEPROM usa
+  `sizeof(saved_calib_values)` para expresar el tamano real del destino.
+- `profile.c`: se corrigio un comentario de `PROF_2_KEY_COL` etiquetado como
+  Profile 3.
+
 ### Malloc fallback
 
 Si `malloc(EECONFIG_SIZE_ANALOG_MATRIX)` falla durante init, el teclado ya no
