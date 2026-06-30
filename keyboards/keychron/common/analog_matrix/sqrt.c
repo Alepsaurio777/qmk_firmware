@@ -18,7 +18,7 @@
 
 uint32_t sqrt_uint32(uint32_t n) {
     uint32_t x = n;
-    uint32_t y = (x + 1) / 2;
+    uint32_t y = x / 2 + 1;
 
     while (y < x) {
         x = y;

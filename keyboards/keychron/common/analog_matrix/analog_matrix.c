@@ -420,16 +420,32 @@ void analog_matrix_eeprom_update(const void *buf, void *addr, size_t len) {
 // Removed save_calibration_value as it is now handled asynchronously
 
 static void save_calibration_values(void) {
-    // Save to external EEPROM. Only mark the flag as committed once the I2C
-    // write actually succeeds, otherwise keep eeprom_calibrated out of sync so
-    // the next save retries instead of silently dropping the update.
-    if (eeprom_calibrated != calibrated) {
-        if (he_eeprom_write_block(&calibrated, (void *)(EXTERNAL_EEPROM_OFFSET + OFFSET_CALIBRATION), 1)) {
+    if (calibrated) {
+        uint8_t invalid_calibration = 0;
+        bool    flag_invalidated    = true;
+
+        // Treat the external EEPROM flag as a commit marker: invalidate it,
+        // write the payload, then mark it valid again. If either write fails,
+        // the next boot will not trust stale calibration data.
+        if (eeprom_calibrated) {
+            flag_invalidated = he_eeprom_write_block(&invalid_calibration, (void *)(EXTERNAL_EEPROM_OFFSET + OFFSET_CALIBRATION), 1);
+            if (flag_invalidated) {
+                eeprom_calibrated = invalid_calibration;
+            }
+        }
+
+        if (flag_invalidated &&
+            he_eeprom_write_block(saved_calib_values, (void *)(EXTERNAL_EEPROM_OFFSET + OFFSET_CALIBRATED_DATA_START), sizeof(saved_calib_values)) &&
+            he_eeprom_write_block(&calibrated, (void *)(EXTERNAL_EEPROM_OFFSET + OFFSET_CALIBRATION), 1)) {
             eeprom_calibrated = calibrated;
         }
+    } else {
+        if (eeprom_calibrated != calibrated) {
+            if (he_eeprom_write_block(&calibrated, (void *)(EXTERNAL_EEPROM_OFFSET + OFFSET_CALIBRATION), 1)) {
+                eeprom_calibrated = calibrated;
+            }
+        }
     }
-
-    he_eeprom_write_block(saved_calib_values, (void *)(EXTERNAL_EEPROM_OFFSET + OFFSET_CALIBRATED_DATA_START), sizeof(saved_calib_values));
 
     // Save a copy to emulate EEPROM
     if (!eeconfig_is_kb_datablock_valid()) eeprom_update_dword(EECONFIG_KEYBOARD, (EECONFIG_KB_DATA_VERSION));
@@ -807,7 +823,11 @@ void analog_matrix_eeconfig_init(void) {
             if (!he_eeprom_read_block(&calibrated, (void *)(EXTERNAL_EEPROM_OFFSET + OFFSET_CALIBRATION), 1)) {
                 calibrated   = 0;
                 i2c_fallback = true;
-            } else if (calibrated) {
+            } else {
+                eeprom_calibrated = calibrated;
+            }
+
+            if (calibrated) {
                 if (!he_eeprom_read_block(saved_calib_values, (void *)(EXTERNAL_EEPROM_OFFSET + OFFSET_CALIBRATED_DATA_START), sizeof(saved_calib_values))) {
                     calibrated   = 0;
                     i2c_fallback = true;

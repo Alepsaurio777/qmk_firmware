@@ -348,8 +348,12 @@ defensivo:
   vez de usar `itoa()` sobre posiciones solapadas.
 - `analog_matrix.c`: la lectura de calibracion desde EEPROM usa
   `sizeof(saved_calib_values)` para expresar el tamano real del destino.
+- `analog_matrix.c`: al guardar calibracion en EEPROM externa, se invalida el
+  flag, se escribe el payload y solo despues se marca como valido.
 - `profile.c`: se corrigio un comentario de `PROF_2_KEY_COL` etiquetado como
   Profile 3.
+- `sqrt.c`: `sqrt_uint32()` evita overflow en el calculo inicial para no caer
+  en division por cero con entradas extremas.
 
 ### Malloc fallback
 
