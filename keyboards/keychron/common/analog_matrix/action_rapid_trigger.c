@@ -36,6 +36,31 @@ static inline bool rt_continuous_enabled(const analog_key_t *key) {
 #endif
 }
 
+static inline bool rt_predictive_enabled(const analog_key_t *key) {
+#if ANALOG_PREDICTIVE_ACTUATION_IN_GAMING_MODE
+    return analog_matrix_is_gaming_mode() &&
+           (rt_continuous_key_matches(key, ANALOG_PREDICTIVE_RT_KEY1_ROW, ANALOG_PREDICTIVE_RT_KEY1_COL) ||
+            rt_continuous_key_matches(key, ANALOG_PREDICTIVE_RT_KEY2_ROW, ANALOG_PREDICTIVE_RT_KEY2_COL));
+#else
+    (void)key;
+    return false;
+#endif
+}
+
+static inline bool rt_predictive_press_ready(const analog_key_t *key, bool predictive_rt) {
+    if (!predictive_rt) return false;
+
+    // Initial press prediction only. The key must be moving downward fast enough
+    // and already be close to the Launcher actuation point.
+    if (key->travel <= key->last_travel) return false;
+
+    const uint8_t delta = key->travel - key->last_travel;
+    if (delta < ANALOG_PREDICTIVE_ACTUATION_MIN_DELTA) return false;
+    if (key->travel < MIN_ACTUATION) return false;
+
+    return (uint16_t)key->travel + ANALOG_PREDICTIVE_ACTUATION_ADVANCE >= key->regular.actn_pt;
+}
+
 static inline bool rt_regular_release_ready(const analog_key_t *key, bool continuous_rt) {
     return continuous_rt ? key->travel == 0 : key->travel <= key->regular.deactn_pt;
 }
@@ -48,11 +73,12 @@ bool rapid_trigger_action(analog_key_t *key) {
     bool   changed          = false;
     int8_t update_rapid_pts = 0;
     bool   continuous_rt    = rt_continuous_enabled(key);
+    bool   predictive_rt    = rt_predictive_enabled(key);
 
     switch (key->state) {
         case AKS_REGULAR_RELEASED:
             // Chick first actuation
-            if (key->travel >= key->regular.actn_pt) {
+            if (key->travel >= key->regular.actn_pt || rt_predictive_press_ready(key, predictive_rt)) {
                 key->state = AKS_REGULAR_PRESSED;
                 changed    = true;
                 // First update rapid trigger point

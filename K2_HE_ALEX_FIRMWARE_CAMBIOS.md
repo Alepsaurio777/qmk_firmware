@@ -306,11 +306,31 @@ Existe una variante experimental ya compilada:
 C:\Users\Alex\keychron-qmk\K2HE_ALEX_EXPERIMENT_CONTINUOUS_RT_space_lshift_autoCalibClean_adc28_settle20_hc164stock_powerOnCal_security_launcher.bin
 ```
 
+Tambien existe una variante mas agresiva que combina Continuous RT con
+actuacion predictiva inicial:
+
+```text
+C:\Users\Alex\keychron-qmk\K2HE_ALEX_EXPERIMENT_CONTINUOUS_RT_PREDICTIVE_space_lshift_adc28_settle20_hc164stock_powerOnCal_security_launcher.bin
+```
+
 La logica experimental solo actua si:
 
 - El modo Gaming esta activo.
 - La tecla esta en modo Rapid Trigger por configuracion del Launcher.
 - La tecla esta en whitelist: Space o Left Shift.
+
+La actuacion predictiva no cambia el punto de actuation guardado por Launcher.
+Solo adelanta el primer `pressed` si la tecla esta bajando rapido y ya esta a
+menos de `ANALOG_PREDICTIVE_ACTUATION_ADVANCE` del punto configurado. En este
+experimento el adelanto es conservador:
+
+```c
+#define ANALOG_PREDICTIVE_ACTUATION_ADVANCE TRAVEL_SCALE
+#define ANALOG_PREDICTIVE_ACTUATION_MIN_DELTA TRAVEL_SCALE
+```
+
+Eso equivale aproximadamente a `0.1 mm` de adelanto y exige una bajada minima
+de `0.1 mm` entre muestras para evitar disparos por ruido.
 
 ### Logica
 
@@ -318,7 +338,10 @@ No se quiso hardcodear Rapid Trigger global porque eso rompe la expectativa del
 Launcher. El usuario debe poder activar/desactivar RT por tecla desde la web.
 
 Continuous RT se dejo separado porque puede sentirse mejor en Space/Shift, pero
-tambien puede introducir dobles eventos o comportamiento mas sensible.
+tambien puede introducir dobles eventos o comportamiento mas sensible. La
+prediccion inicial pertenece a esa misma familia: puede ganar tiempo efectivo,
+pero acepta mas riesgo de false trigger si la tecla vibra o si el usuario roza
+la tecla sin terminar de presionarla.
 
 ## Seguridad y robustez
 

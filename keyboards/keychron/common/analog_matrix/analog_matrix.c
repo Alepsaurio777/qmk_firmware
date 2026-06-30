@@ -916,8 +916,6 @@ bool update_raw_value(uint8_t row, uint8_t col, uint16_t value) {
 
     if (k->travel == k->last_travel) return false;
 
-    k->last_travel = k->travel;
-
     bool ret = false;
 
     switch (mode) {
@@ -949,6 +947,8 @@ bool update_raw_value(uint8_t row, uint8_t col, uint16_t value) {
             ret = regular_trigger_action(k);
             break;
     }
+
+    k->last_travel = k->travel;
 
     return ret;
 }
