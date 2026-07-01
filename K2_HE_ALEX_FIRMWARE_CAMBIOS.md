@@ -370,6 +370,21 @@ cuando el rapid release ocurre aun muy profundo. El objetivo es reducir missed
 jumps en parkour sin tocar productividad, otras teclas ni la configuracion del
 Launcher.
 
+El arbol fuente queda en modo daily con las flags experimentales apagadas:
+
+```c
+#define ANALOG_CONTINUOUS_RAPID_TRIGGER_IN_GAMING_MODE 0
+#define ANALOG_PREDICTIVE_ACTUATION_IN_GAMING_MODE 0
+```
+
+Para reproducir el binario experimental V3 se compila temporalmente con:
+
+```c
+#define ANALOG_CONTINUOUS_RAPID_TRIGGER_IN_GAMING_MODE 1
+#define ANALOG_PREDICTIVE_ACTUATION_IN_GAMING_MODE 1
+#define ANALOG_CONTINUOUS_RT_REPRESS_MAX_TRAVEL 240
+```
+
 ### Logica
 
 No se quiso hardcodear Rapid Trigger global porque eso rompe la expectativa del
@@ -420,6 +435,8 @@ defensivo:
   `sizeof(saved_calib_values)` para expresar el tamano real del destino.
 - `analog_matrix.c`: al guardar calibracion en EEPROM externa, se invalida el
   flag, se escribe el payload y solo despues se marca como valido.
+- `analog_matrix.c`: la copia interna emulada de calibracion usa el mismo
+  patron transaccional: invalida flag, escribe payload y marca valido al final.
 - `analog_matrix.c`: la histeresis adaptativa mantiene un piso de `1` cuando
   hay actuation positivo, evitando un borde de histeresis cero con actuation
   extremadamente superficial.
@@ -435,6 +452,11 @@ defensivo:
   Profile 3.
 - `sqrt.c`: `sqrt_uint32()` evita overflow en el calculo inicial para no caer
   en division por cero con entradas extremas.
+- `keymap.c` (`alex`): el cambio Win/Gaming ya no reconstruye perfiles dentro
+  del callback de default layer. Se agenda para `housekeeping_task_user()`, un
+  ciclo despues, cuando `default_layer_state` ya esta consolidado. Asi la
+  histeresis, fast key y fallbacks de modos avanzados se calculan con el modo
+  real, no con el modo anterior.
 
 ### Malloc fallback
 

@@ -466,8 +466,14 @@ static void save_calibration_values(void) {
     // Save a copy to emulate EEPROM
     if (!eeconfig_is_kb_datablock_valid()) eeprom_update_dword(EECONFIG_KEYBOARD, (EECONFIG_KB_DATA_VERSION));
 
-    analog_matrix_eeprom_update(&calibrated, OFFSET_CALIBRATION, 1);
-    analog_matrix_eeprom_update(saved_calib_values, (uint8_t *)OFFSET_CALIBRATED_DATA_START, sizeof(saved_calib_values));
+    if (calibrated) {
+        uint8_t invalid_calibration = 0;
+        analog_matrix_eeprom_update(&invalid_calibration, OFFSET_CALIBRATION, 1);
+        analog_matrix_eeprom_update(saved_calib_values, (uint8_t *)OFFSET_CALIBRATED_DATA_START, sizeof(saved_calib_values));
+        analog_matrix_eeprom_update(&calibrated, OFFSET_CALIBRATION, 1);
+    } else {
+        analog_matrix_eeprom_update(&calibrated, OFFSET_CALIBRATION, 1);
+    }
 
     update_default_travel();
     update_travel_configs();

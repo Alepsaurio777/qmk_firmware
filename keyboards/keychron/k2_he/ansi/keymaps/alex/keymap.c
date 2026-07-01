@@ -80,15 +80,38 @@ static inline bool is_profile_select_keycode(uint16_t keycode) {
     return keycode >= PROF1 && keycode <= PROF3;
 }
 
+static bool    pending_profile_rebuild = false;
+static uint8_t pending_profile_index   = 0;
+
+static inline void schedule_profile_rebuild(uint8_t profile_index) {
+    pending_profile_index   = profile_index;
+    pending_profile_rebuild = true;
+}
+
 layer_state_t default_layer_state_set_user(layer_state_t state) {
     if (state & (1UL << WIN_BASE)) {
-        // Win Base layer active (Productivity) -> select Profile 1 (index 0)
-        profile_select(0, false, false);
+        // Defer profile rebuild until default_layer_state has been committed.
+        schedule_profile_rebuild(0);
     } else if (state & (1UL << GAMING_BASE)) {
-        // Gaming Base layer active (Gaming) -> select Profile 2 (index 1)
-        profile_select(1, false, false);
+        schedule_profile_rebuild(1);
     }
     return state;
+}
+
+void housekeeping_task_user(void) {
+    if (!pending_profile_rebuild) return;
+
+    pending_profile_rebuild = false;
+
+    const uint8_t profile_index = pending_profile_index;
+    const bool    same_profile  = profile_get_current_index() == profile_index;
+
+    if (profile_select(profile_index, false, false) && same_profile) {
+        // profile_select() rebuilds configs only when the profile index changes.
+        // Force a rebuild here so Win/Gaming hysteresis and advanced-mode
+        // fallbacks are computed after the default layer transition settles.
+        update_travel_configs();
+    }
 }
 
 bool process_record_user(uint16_t keycode, keyrecord_t *record) {
