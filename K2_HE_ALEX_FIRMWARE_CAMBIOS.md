@@ -318,6 +318,7 @@ La variante v2 esta enfocada especificamente en spam de Space/Shift:
 ```text
 C:\Users\Alex\keychron-qmk\K2HE_ALEX_2026-06-30_EXPERIMENT_RT_PREDICTIVE_V2_space_lshift_release_repress_adc28_settle20_hc164stock.bin
 C:\Users\Alex\keychron-qmk\K2HE_ALEX_2026-07-01_EXPERIMENT_RT_PREDICTIVE_V2_space_lshift_release_repress_adc28_settle20_hc164stock.bin
+C:\Users\Alex\keychron-qmk\K2HE_ALEX_2026-07-01_EXPERIMENT_RT_PREDICTIVE_V3_CAP240_space_lshift_adc28_settle20_hc164stock.bin
 ```
 
 La logica experimental solo actua si:
@@ -357,6 +358,17 @@ El punto dinamico de re-press se clampa al travel maximo real que puede devolver
 Esto evita que una sensibilidad RT alta genere un `rapid.actn_pt` entre `246` y
 `255`, rango que nunca es alcanzable fisicamente por este firmware. Sin ese
 clamp, la tecla podia quedar en estado rapid-released hasta soltarla del todo.
+
+La variante v3 agrega un cap adicional solo para teclas con Continuous RT:
+
+```c
+#define ANALOG_CONTINUOUS_RT_REPRESS_MAX_TRAVEL 240
+```
+
+Esto evita que Space/Left Shift exijan un re-press casi al fondo fisico (`245`)
+cuando el rapid release ocurre aun muy profundo. El objetivo es reducir missed
+jumps en parkour sin tocar productividad, otras teclas ni la configuracion del
+Launcher.
 
 ### Logica
 

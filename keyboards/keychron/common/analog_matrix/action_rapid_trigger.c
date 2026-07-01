@@ -96,6 +96,10 @@ static inline bool rt_repress_ready(const analog_key_t *key, bool continuous_rt)
     return key->travel >= key->rapid.actn_pt && (continuous_rt || key->travel >= key->regular.actn_pt);
 }
 
+static inline uint8_t rt_repress_max_travel(bool continuous_rt) {
+    return continuous_rt ? ANALOG_CONTINUOUS_RT_REPRESS_MAX_TRAVEL : RT_MAX_TRAVEL;
+}
+
 bool rapid_trigger_action(analog_key_t *key) {
     bool   changed          = false;
     int8_t update_rapid_pts = 0;
@@ -175,7 +179,8 @@ bool rapid_trigger_action(analog_key_t *key) {
         } else {
             key->rapid.deactn_pt = key->travel;
             uint16_t actn_pt = (uint16_t)key->travel + key->rpd_trig_sen;
-            key->rapid.actn_pt = actn_pt > RT_MAX_TRAVEL ? RT_MAX_TRAVEL : actn_pt;
+            uint8_t  max_actn_pt = rt_repress_max_travel(continuous_rt);
+            key->rapid.actn_pt = actn_pt > max_actn_pt ? max_actn_pt : actn_pt;
         }
     }
 
