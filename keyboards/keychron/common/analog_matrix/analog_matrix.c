@@ -140,6 +140,18 @@ enum {
     AMC_GET_CALIBRATED_VALUE,
 };
 
+static inline bool analog_matrix_reject_raw_hid_in_gaming(uint8_t cmd) {
+    if (!analog_matrix_is_gaming_mode()) return false;
+
+    switch (cmd) {
+        case AMC_RESET_PROFILE:
+        case AMC_CALIBRATE:
+            return true;
+        default:
+            return false;
+    }
+}
+
 extern const matrix_row_t analog_matrix_mask[];
 extern const matrix_row_t okmc_matrix[MATRIX_ROWS];
 extern matrix_row_t       virtual_matrix[MATRIX_ROWS];
@@ -1113,6 +1125,12 @@ void analog_matrix_rx(uint8_t *data, uint8_t length) {
 
     uint8_t cmd     = data[1];
     bool    success = true;
+
+    if (analog_matrix_reject_raw_hid_in_gaming(cmd)) {
+        data[2] = 1;
+        raw_hid_send(data, length);
+        return;
+    }
 
     switch (cmd) {
         case AMC_GET_VERSION:

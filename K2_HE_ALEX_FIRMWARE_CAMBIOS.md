@@ -317,6 +317,7 @@ La variante v2 esta enfocada especificamente en spam de Space/Shift:
 
 ```text
 C:\Users\Alex\keychron-qmk\K2HE_ALEX_2026-06-30_EXPERIMENT_RT_PREDICTIVE_V2_space_lshift_release_repress_adc28_settle20_hc164stock.bin
+C:\Users\Alex\keychron-qmk\K2HE_ALEX_2026-07-01_EXPERIMENT_RT_PREDICTIVE_V2_space_lshift_release_repress_adc28_settle20_hc164stock.bin
 ```
 
 La logica experimental solo actua si:
@@ -346,6 +347,17 @@ Continuous RT:
 - Re-press predictivo: despues de un rapid release, una bajada rapida que ya
   esta a menos de `0.1 mm` del nuevo punto dinamico puede mandar `pressed`.
 
+El punto dinamico de re-press se clampa al travel maximo real que puede devolver
+`convert_to_travel()`:
+
+```c
+(FULL_TRAVEL_UNIT + 1) * TRAVEL_SCALE - 1
+```
+
+Esto evita que una sensibilidad RT alta genere un `rapid.actn_pt` entre `246` y
+`255`, rango que nunca es alcanzable fisicamente por este firmware. Sin ese
+clamp, la tecla podia quedar en estado rapid-released hasta soltarla del todo.
+
 ### Logica
 
 No se quiso hardcodear Rapid Trigger global porque eso rompe la expectativa del
@@ -365,6 +377,15 @@ Se corrigio un OOB/offset al responder matriz analogica via Raw HID.
 
 Tambien se agrego un `return false` defensivo en el comando `0xAA` para evitar
 fall-through a `0xAB` si Factory Test se reactiva en otro build.
+
+En Gaming Mode se rechazan por Raw HID los comandos que pueden interrumpir una
+partida de forma brusca:
+
+- `AMC_CALIBRATE`.
+- `AMC_RESET_PROFILE`.
+
+Se dejan activos los comandos de lectura y los cambios normales del Launcher
+para no romper diagnostico, perfiles ni ajustes de actuation/RT en vivo.
 
 ### Factory Test
 
@@ -390,8 +411,14 @@ defensivo:
 - `analog_matrix.c`: la histeresis adaptativa mantiene un piso de `1` cuando
   hay actuation positivo, evitando un borde de histeresis cero con actuation
   extremadamente superficial.
+- `analog_matrix.h`: las coordenadas de fast key, Continuous RT y Predictive RT
+  tienen asserts de compilacion; `0xFF/0xFF` es valido como deshabilitado, pero
+  una coordenada parcial o fuera de matriz falla antes de generar binario.
 - `analog_matrix_scan.c`: se elimino una llamada duplicada a `matrix_scan_kb()`;
   QMK ya la llama desde `matrix_scan()`.
+- `eeprom_he.c`: las lecturas/escrituras a EEPROM externa validan que el rango
+  completo caiga dentro de `EXTERNAL_EEPROM_BYTE_COUNT`; longitud cero es un
+  no-op exitoso y no toca I2C ni WP.
 - `profile.c`: se corrigio un comentario de `PROF_2_KEY_COL` etiquetado como
   Profile 3.
 - `sqrt.c`: `sqrt_uint32()` evita overflow en el calculo inicial para no caer

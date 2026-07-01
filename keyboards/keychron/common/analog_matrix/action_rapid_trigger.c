@@ -16,6 +16,10 @@
 
 #include "analog_matrix.h"
 
+enum {
+    RT_MAX_TRAVEL = (FULL_TRAVEL_UNIT + 1) * TRAVEL_SCALE - 1,
+};
+
 static int32_t rt_bottom_guard(const analog_key_t *k) {
     int32_t bottom_guard = ((int32_t)BOTTOM_DEAD_ZONE * TRAVEL_SCALE) - (int32_t)k->rpd_trig_sen_rls;
     return bottom_guard < 0 ? 0 : bottom_guard;
@@ -171,7 +175,7 @@ bool rapid_trigger_action(analog_key_t *key) {
         } else {
             key->rapid.deactn_pt = key->travel;
             uint16_t actn_pt = (uint16_t)key->travel + key->rpd_trig_sen;
-            key->rapid.actn_pt = actn_pt > 255 ? 255 : actn_pt;
+            key->rapid.actn_pt = actn_pt > RT_MAX_TRAVEL ? RT_MAX_TRAVEL : actn_pt;
         }
     }
 

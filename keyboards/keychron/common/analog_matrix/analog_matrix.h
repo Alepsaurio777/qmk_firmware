@@ -19,6 +19,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include "action_layer.h"
+#include "compiler_support.h"
 #include "keycodes.h"
 #include "matrix.h"
 #include "analog_matrix_eeconfig.h"
@@ -205,6 +206,16 @@ static inline bool analog_matrix_is_gaming_mode(void) {
 #ifndef ANALOG_PREDICTIVE_ACTUATION_MIN_DELTA
 #    define ANALOG_PREDICTIVE_ACTUATION_MIN_DELTA TRAVEL_SCALE
 #endif
+
+#define ANALOG_COORD_DISABLED(row, col) ((row) == 0xFF && (col) == 0xFF)
+#define ANALOG_COORD_IN_MATRIX(row, col) ((row) < MATRIX_ROWS && (col) < MATRIX_COLS)
+#define ANALOG_COORD_VALID(row, col) (ANALOG_COORD_DISABLED(row, col) || ANALOG_COORD_IN_MATRIX(row, col))
+
+STATIC_ASSERT(ANALOG_COORD_VALID(ANALOG_GAMING_FAST_KEY_ROW, ANALOG_GAMING_FAST_KEY_COL), "ANALOG_GAMING_FAST_KEY must be disabled or inside the matrix");
+STATIC_ASSERT(ANALOG_COORD_VALID(ANALOG_CONTINUOUS_RT_KEY1_ROW, ANALOG_CONTINUOUS_RT_KEY1_COL), "ANALOG_CONTINUOUS_RT_KEY1 must be disabled or inside the matrix");
+STATIC_ASSERT(ANALOG_COORD_VALID(ANALOG_CONTINUOUS_RT_KEY2_ROW, ANALOG_CONTINUOUS_RT_KEY2_COL), "ANALOG_CONTINUOUS_RT_KEY2 must be disabled or inside the matrix");
+STATIC_ASSERT(ANALOG_COORD_VALID(ANALOG_PREDICTIVE_RT_KEY1_ROW, ANALOG_PREDICTIVE_RT_KEY1_COL), "ANALOG_PREDICTIVE_RT_KEY1 must be disabled or inside the matrix");
+STATIC_ASSERT(ANALOG_COORD_VALID(ANALOG_PREDICTIVE_RT_KEY2_ROW, ANALOG_PREDICTIVE_RT_KEY2_COL), "ANALOG_PREDICTIVE_RT_KEY2 must be disabled or inside the matrix");
 
 // Threshold value when the magnet switch is not installed
 #ifndef ABNORMAL_ANALOG_RAW_THRESHOLD_VALUE
