@@ -320,6 +320,7 @@ C:\Users\Alex\keychron-qmk\K2HE_ALEX_2026-06-30_EXPERIMENT_RT_PREDICTIVE_V2_spac
 C:\Users\Alex\keychron-qmk\K2HE_ALEX_2026-07-01_EXPERIMENT_RT_PREDICTIVE_V2_space_lshift_release_repress_adc28_settle20_hc164stock.bin
 C:\Users\Alex\keychron-qmk\K2HE_ALEX_2026-07-01_EXPERIMENT_RT_PREDICTIVE_V3_CAP240_space_lshift_adc28_settle20_hc164stock.bin
 C:\Users\Alex\keychron-qmk\K2HE_ALEX_2026-07-02_EXPERIMENT_RT_PREDICTIVE_V4_ADVANCE02_CAP240_space_lshift_adc28_settle20_hc164stock.bin
+C:\Users\Alex\keychron-qmk\K2HE_ALEX_2026-07-02_EXPERIMENT_RT_PREDICTIVE_V5_ADVANCE02_CAP240_WASDregular_space_lshift_adc28_settle20_hc164stock.bin
 ```
 
 La logica experimental solo actua si:
@@ -400,6 +401,24 @@ pero sube el adelanto predictivo a `0.2 mm`:
 Este binario prueba si adelantar mas el press/re-press de Space reduce missed
 jumps. Tiene mas riesgo de salto accidental que V3, por eso no se promueve al
 daily sin prueba real.
+
+La variante V5 conserva V4 para Space/Left Shift y agrega actuacion predictiva
+regular para W/A/S/D en Gaming:
+
+```c
+#define ANALOG_CONTINUOUS_RAPID_TRIGGER_IN_GAMING_MODE 1
+#define ANALOG_PREDICTIVE_ACTUATION_IN_GAMING_MODE 1
+#define ANALOG_PREDICTIVE_REGULAR_IN_GAMING_MODE 1
+#define ANALOG_CONTINUOUS_RT_REPRESS_MAX_TRAVEL 240
+#define ANALOG_PREDICTIVE_ACTUATION_ADVANCE (2 * TRAVEL_SCALE)
+#define ANALOG_PREDICTIVE_ACTUATION_MIN_DELTA TRAVEL_SCALE
+```
+
+Con `ANALOG_PREDICTIVE_REGULAR_IN_GAMING_MODE`, W/A/S/D se fuerzan a
+`AKM_REGULAR` en Gaming aunque el perfil global sea Rapid. Esto prueba un
+press inicial adelantado para movimiento sin release/re-press dinamico de Rapid
+Trigger en esas cuatro teclas. Productividad y el source daily quedan con el
+flag apagado.
 
 ### Logica
 
