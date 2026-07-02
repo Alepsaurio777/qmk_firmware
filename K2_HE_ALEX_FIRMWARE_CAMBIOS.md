@@ -319,6 +319,7 @@ La variante v2 esta enfocada especificamente en spam de Space/Shift:
 C:\Users\Alex\keychron-qmk\K2HE_ALEX_2026-06-30_EXPERIMENT_RT_PREDICTIVE_V2_space_lshift_release_repress_adc28_settle20_hc164stock.bin
 C:\Users\Alex\keychron-qmk\K2HE_ALEX_2026-07-01_EXPERIMENT_RT_PREDICTIVE_V2_space_lshift_release_repress_adc28_settle20_hc164stock.bin
 C:\Users\Alex\keychron-qmk\K2HE_ALEX_2026-07-01_EXPERIMENT_RT_PREDICTIVE_V3_CAP240_space_lshift_adc28_settle20_hc164stock.bin
+C:\Users\Alex\keychron-qmk\K2HE_ALEX_2026-07-02_EXPERIMENT_RT_PREDICTIVE_V4_ADVANCE02_CAP240_space_lshift_adc28_settle20_hc164stock.bin
 ```
 
 La logica experimental solo actua si:
@@ -384,6 +385,21 @@ Para reproducir el binario experimental V3 se compila temporalmente con:
 #define ANALOG_PREDICTIVE_ACTUATION_IN_GAMING_MODE 1
 #define ANALOG_CONTINUOUS_RT_REPRESS_MAX_TRAVEL 240
 ```
+
+La variante V4 `ADVANCE02` conserva CAP240 y el minimo de bajada en `0.1 mm`,
+pero sube el adelanto predictivo a `0.2 mm`:
+
+```c
+#define ANALOG_CONTINUOUS_RAPID_TRIGGER_IN_GAMING_MODE 1
+#define ANALOG_PREDICTIVE_ACTUATION_IN_GAMING_MODE 1
+#define ANALOG_CONTINUOUS_RT_REPRESS_MAX_TRAVEL 240
+#define ANALOG_PREDICTIVE_ACTUATION_ADVANCE (2 * TRAVEL_SCALE)
+#define ANALOG_PREDICTIVE_ACTUATION_MIN_DELTA TRAVEL_SCALE
+```
+
+Este binario prueba si adelantar mas el press/re-press de Space reduce missed
+jumps. Tiene mas riesgo de salto accidental que V3, por eso no se promueve al
+daily sin prueba real.
 
 ### Logica
 
