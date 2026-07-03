@@ -106,6 +106,31 @@ uint8_t                         prof_combo     = 0;
 static uint8_t                  prof_ind_state = 0;
 static uint32_t                 pro_ind_timer  = 0;
 
+static inline void profile_default_key_to_rapid_if_global(analog_matrix_profile_t *prof, uint8_t row, uint8_t col) {
+    if (!ANALOG_COORD_IN_MATRIX(row, col)) return;
+
+    if (prof->key_config[row][col].mode == AKM_GLOBAL) {
+        prof->key_config[row][col].mode = AKM_RAPID;
+    }
+}
+
+static void profile_apply_default_rapid_keys(uint8_t prof_idx) {
+    if (ANALOG_GAMING_DEFAULT_RAPID_PROFILE >= PROFILE_COUNT ||
+        prof_idx != ANALOG_GAMING_DEFAULT_RAPID_PROFILE) {
+        return;
+    }
+
+    analog_matrix_profile_t *prof = &profile[prof_idx];
+    if (prof->global.mode != AKM_RAPID) return;
+
+    profile_default_key_to_rapid_if_global(prof, ANALOG_CONTINUOUS_RT_KEY1_ROW, ANALOG_CONTINUOUS_RT_KEY1_COL);
+    profile_default_key_to_rapid_if_global(prof, ANALOG_CONTINUOUS_RT_KEY2_ROW, ANALOG_CONTINUOUS_RT_KEY2_COL);
+    profile_default_key_to_rapid_if_global(prof, ANALOG_PREDICTIVE_RT_KEY3_ROW, ANALOG_PREDICTIVE_RT_KEY3_COL);
+    profile_default_key_to_rapid_if_global(prof, ANALOG_PREDICTIVE_RT_KEY4_ROW, ANALOG_PREDICTIVE_RT_KEY4_COL);
+    profile_default_key_to_rapid_if_global(prof, ANALOG_PREDICTIVE_RT_KEY5_ROW, ANALOG_PREDICTIVE_RT_KEY5_COL);
+    profile_default_key_to_rapid_if_global(prof, ANALOG_PREDICTIVE_RT_KEY6_ROW, ANALOG_PREDICTIVE_RT_KEY6_COL);
+}
+
 void profile_init(bool reset) {
     if (reset) {
         // Write default profile setting
@@ -137,6 +162,7 @@ void profile_init(bool reset) {
             if (profile[i].global.act_pt == 0 || profile[i].global.act_pt > 39) profile[i].global.act_pt = DEFAULT_ACTUATION_POINT;
             if (profile[i].global.rpd_trig_sen == 0 || profile[i].global.rpd_trig_sen > 39) profile[i].global.rpd_trig_sen = DEFAULT_RAPID_TRIGGER_SENSITIVITY;
             if (profile[i].global.rpd_trig_sen_deact == 0 || profile[i].global.rpd_trig_sen_deact > 39) profile[i].global.rpd_trig_sen_deact = profile[i].global.rpd_trig_sen;
+            profile_apply_default_rapid_keys(i);
         }
 
         free(buf);
@@ -348,6 +374,7 @@ bool profile_reset(uint8_t prof_index) {
             }
         }
 
+    profile_apply_default_rapid_keys(prof_index);
     profile_save(prof_index);
     if (prof_index == profile_get_current_index()) socd_update_active_state();
 

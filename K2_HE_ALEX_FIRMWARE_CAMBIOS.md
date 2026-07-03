@@ -323,6 +323,7 @@ C:\Users\Alex\keychron-qmk\K2HE_ALEX_2026-07-02_EXPERIMENT_RT_PREDICTIVE_V4_ADVA
 C:\Users\Alex\keychron-qmk\K2HE_ALEX_2026-07-02_EXPERIMENT_RT_PREDICTIVE_V5_ADVANCE02_CAP240_WASDregular_space_lshift_adc28_settle20_hc164stock.bin
 C:\Users\Alex\keychron-qmk\K2HE_ALEX_2026-07-02_EXPERIMENT_RT_PREDICTIVE_V6_ADVANCE02_CAP240_WASDlauncherSafe_space_lshift_adc28_settle20_hc164stock.bin
 C:\Users\Alex\keychron-qmk\K2HE_ALEX_2026-07-02_EXPERIMENT_RT_PREDICTIVE_V7_ADVANCE02_CAP240_WASDrapid_space_lshift_adc28_settle20_hc164stock.bin
+C:\Users\Alex\keychron-qmk\K2HE_ALEX_2026-07-02_EXPERIMENT_RT_PREDICTIVE_V8_ADVANCE02_CAP240_defaultRT_WASDrapid_space_lshift_adc28_settle20_hc164stock.bin
 ```
 
 La logica experimental solo actua si:
@@ -458,6 +459,19 @@ La receta temporal de V7 es:
 #define ANALOG_PREDICTIVE_ACTUATION_ADVANCE (2 * TRAVEL_SCALE)
 #define ANALOG_PREDICTIVE_ACTUATION_MIN_DELTA TRAVEL_SCALE
 ```
+
+Para evitar confusiones del Launcher con perfiles que heredaban el modo global,
+el perfil Gaming (`ANALOG_GAMING_DEFAULT_RAPID_PROFILE 1`) marca como
+`AKM_RAPID` explicito a las teclas principales si seguian en `AKM_GLOBAL`:
+
+- Space.
+- Left Shift.
+- W/A/S/D.
+
+Esto no pisa una decision explicita del Launcher: si una de esas teclas ya esta
+en `AKM_REGULAR`, DKS, Toggle o Gamepad, se respeta. El objetivo es que el
+estado "Turn on" de Rapid Trigger sea visible/persistente en Gaming en vez de
+depender de la herencia global del perfil.
 
 ### Logica
 
