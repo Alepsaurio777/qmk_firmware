@@ -324,6 +324,7 @@ C:\Users\Alex\keychron-qmk\K2HE_ALEX_2026-07-02_EXPERIMENT_RT_PREDICTIVE_V5_ADVA
 C:\Users\Alex\keychron-qmk\K2HE_ALEX_2026-07-02_EXPERIMENT_RT_PREDICTIVE_V6_ADVANCE02_CAP240_WASDlauncherSafe_space_lshift_adc28_settle20_hc164stock.bin
 C:\Users\Alex\keychron-qmk\K2HE_ALEX_2026-07-02_EXPERIMENT_RT_PREDICTIVE_V7_ADVANCE02_CAP240_WASDrapid_space_lshift_adc28_settle20_hc164stock.bin
 C:\Users\Alex\keychron-qmk\K2HE_ALEX_2026-07-02_EXPERIMENT_RT_PREDICTIVE_V8_ADVANCE02_CAP240_defaultRT_WASDrapid_space_lshift_adc28_settle20_hc164stock.bin
+C:\Users\Alex\keychron-qmk\K2HE_ALEX_2026-07-02_EXPERIMENT_RT_PREDICTIVE_V9_ADVANCE02_CAP240_WASDregularDefault_space_lshiftRT_adc28_settle20_hc164stock.bin
 ```
 
 La logica experimental solo actua si:
@@ -460,18 +461,34 @@ La receta temporal de V7 es:
 #define ANALOG_PREDICTIVE_ACTUATION_MIN_DELTA TRAVEL_SCALE
 ```
 
-Para evitar confusiones del Launcher con perfiles que heredaban el modo global,
-el perfil Gaming (`ANALOG_GAMING_DEFAULT_RAPID_PROFILE 1`) marca como
-`AKM_RAPID` explicito a las teclas principales si seguian en `AKM_GLOBAL`:
+La variante V8 marco Space/Left Shift/W/A/S/D como `AKM_RAPID` explicito si
+seguian heredando `AKM_GLOBAL`. Eso arreglaba la visibilidad del estado
+"Turn on" en Launcher, pero no era la filosofia deseada para W/A/S/D: esas
+teclas deben poder vivir en modo Regular/default con prediccion de downstroke.
 
-- Space.
-- Left Shift.
-- W/A/S/D.
+La variante V9 corrige esa separacion:
 
-Esto no pisa una decision explicita del Launcher: si una de esas teclas ya esta
-en `AKM_REGULAR`, DKS, Toggle o Gamepad, se respeta. El objetivo es que el
-estado "Turn on" de Rapid Trigger sea visible/persistente en Gaming en vez de
-depender de la herencia global del perfil.
+- Space y Left Shift se marcan como `AKM_RAPID` explicito si seguian en
+  `AKM_GLOBAL`.
+- W/A/S/D se marcan como `AKM_REGULAR` explicito si seguian en `AKM_GLOBAL`.
+- Si el Launcher ya puso una decision explicita (`AKM_RAPID`, `AKM_REGULAR`,
+  DKS, Toggle o Gamepad), el firmware la respeta.
+
+La receta temporal de V9 es:
+
+```c
+#define ANALOG_CONTINUOUS_RAPID_TRIGGER_IN_GAMING_MODE 1
+#define ANALOG_PREDICTIVE_ACTUATION_IN_GAMING_MODE 1
+#define ANALOG_PREDICTIVE_REGULAR_IN_GAMING_MODE 1
+#define ANALOG_PREDICTIVE_REGULAR_FORCE_MODE_IN_GAMING 0
+#define ANALOG_CONTINUOUS_RT_REPRESS_MAX_TRAVEL 240
+#define ANALOG_PREDICTIVE_ACTUATION_ADVANCE (2 * TRAVEL_SCALE)
+#define ANALOG_PREDICTIVE_ACTUATION_MIN_DELTA TRAVEL_SCALE
+```
+
+En V9, W/A/S/D reciben el adelanto de `0.2 mm` cuando estan en Regular. Si se
+activa Rapid Trigger desde Launcher para cualquiera de esas teclas, dejan de
+usar la rama Regular y pasan a la rama Rapid Trigger con predictive RT.
 
 ### Logica
 

@@ -199,6 +199,10 @@ static inline bool analog_matrix_is_gaming_mode(void) {
 #    define ANALOG_GAMING_DEFAULT_RAPID_PROFILE 0xFF
 #endif
 
+#ifndef ANALOG_GAMING_DEFAULT_REGULAR_PROFILE
+#    define ANALOG_GAMING_DEFAULT_REGULAR_PROFILE 0xFF
+#endif
+
 #ifndef ANALOG_PREDICTIVE_RT_KEY1_ROW
 #    define ANALOG_PREDICTIVE_RT_KEY1_ROW ANALOG_CONTINUOUS_RT_KEY1_ROW
 #endif
