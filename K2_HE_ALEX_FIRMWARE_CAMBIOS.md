@@ -322,6 +322,7 @@ C:\Users\Alex\keychron-qmk\K2HE_ALEX_2026-07-01_EXPERIMENT_RT_PREDICTIVE_V3_CAP2
 C:\Users\Alex\keychron-qmk\K2HE_ALEX_2026-07-02_EXPERIMENT_RT_PREDICTIVE_V4_ADVANCE02_CAP240_space_lshift_adc28_settle20_hc164stock.bin
 C:\Users\Alex\keychron-qmk\K2HE_ALEX_2026-07-02_EXPERIMENT_RT_PREDICTIVE_V5_ADVANCE02_CAP240_WASDregular_space_lshift_adc28_settle20_hc164stock.bin
 C:\Users\Alex\keychron-qmk\K2HE_ALEX_2026-07-02_EXPERIMENT_RT_PREDICTIVE_V6_ADVANCE02_CAP240_WASDlauncherSafe_space_lshift_adc28_settle20_hc164stock.bin
+C:\Users\Alex\keychron-qmk\K2HE_ALEX_2026-07-02_EXPERIMENT_RT_PREDICTIVE_V7_ADVANCE02_CAP240_WASDrapid_space_lshift_adc28_settle20_hc164stock.bin
 ```
 
 La logica experimental solo actua si:
@@ -433,6 +434,25 @@ La receta temporal de V6 es:
 #define ANALOG_CONTINUOUS_RAPID_TRIGGER_IN_GAMING_MODE 1
 #define ANALOG_PREDICTIVE_ACTUATION_IN_GAMING_MODE 1
 #define ANALOG_PREDICTIVE_REGULAR_IN_GAMING_MODE 1
+#define ANALOG_PREDICTIVE_REGULAR_FORCE_MODE_IN_GAMING 0
+#define ANALOG_CONTINUOUS_RT_REPRESS_MAX_TRAVEL 240
+#define ANALOG_PREDICTIVE_ACTUATION_ADVANCE (2 * TRAVEL_SCALE)
+#define ANALOG_PREDICTIVE_ACTUATION_MIN_DELTA TRAVEL_SCALE
+```
+
+La variante V7 reemplaza el enfoque de W/A/S/D regular por W/A/S/D desde Rapid
+Trigger. Es la variante preferida para probar movimiento:
+
+- Space/Left Shift siguen con Continuous RT + predictive + CAP240.
+- W/A/S/D solo reciben predictive si el Launcher las tiene en Rapid Trigger.
+- Si W/A/S/D estan en Regular, no reciben prediccion especial.
+
+La receta temporal de V7 es:
+
+```c
+#define ANALOG_CONTINUOUS_RAPID_TRIGGER_IN_GAMING_MODE 1
+#define ANALOG_PREDICTIVE_ACTUATION_IN_GAMING_MODE 1
+#define ANALOG_PREDICTIVE_REGULAR_IN_GAMING_MODE 0
 #define ANALOG_PREDICTIVE_REGULAR_FORCE_MODE_IN_GAMING 0
 #define ANALOG_CONTINUOUS_RT_REPRESS_MAX_TRAVEL 240
 #define ANALOG_PREDICTIVE_ACTUATION_ADVANCE (2 * TRAVEL_SCALE)

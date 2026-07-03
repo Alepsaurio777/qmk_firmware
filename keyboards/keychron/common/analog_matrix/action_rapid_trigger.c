@@ -44,7 +44,11 @@ static inline bool rt_predictive_enabled(const analog_key_t *key) {
 #if ANALOG_PREDICTIVE_ACTUATION_IN_GAMING_MODE
     return analog_matrix_is_gaming_mode() &&
            (rt_continuous_key_matches(key, ANALOG_PREDICTIVE_RT_KEY1_ROW, ANALOG_PREDICTIVE_RT_KEY1_COL) ||
-            rt_continuous_key_matches(key, ANALOG_PREDICTIVE_RT_KEY2_ROW, ANALOG_PREDICTIVE_RT_KEY2_COL));
+            rt_continuous_key_matches(key, ANALOG_PREDICTIVE_RT_KEY2_ROW, ANALOG_PREDICTIVE_RT_KEY2_COL) ||
+            rt_continuous_key_matches(key, ANALOG_PREDICTIVE_RT_KEY3_ROW, ANALOG_PREDICTIVE_RT_KEY3_COL) ||
+            rt_continuous_key_matches(key, ANALOG_PREDICTIVE_RT_KEY4_ROW, ANALOG_PREDICTIVE_RT_KEY4_COL) ||
+            rt_continuous_key_matches(key, ANALOG_PREDICTIVE_RT_KEY5_ROW, ANALOG_PREDICTIVE_RT_KEY5_COL) ||
+            rt_continuous_key_matches(key, ANALOG_PREDICTIVE_RT_KEY6_ROW, ANALOG_PREDICTIVE_RT_KEY6_COL));
 #else
     (void)key;
     return false;
