@@ -197,7 +197,7 @@ uint8_t analog_matrix_get_travel(uint8_t row, uint8_t col) {
     return analog_key_matrix[row][col].travel;
 }
 
-#if ANALOG_DISABLE_OKMC_IN_GAMING_MODE || ANALOG_DISABLE_TOGGLE_IN_GAMING_MODE || ANALOG_DISABLE_GAMEPAD_IN_GAMING_MODE || ANALOG_PREDICTIVE_REGULAR_IN_GAMING_MODE
+#if ANALOG_DISABLE_OKMC_IN_GAMING_MODE || ANALOG_DISABLE_TOGGLE_IN_GAMING_MODE || ANALOG_DISABLE_GAMEPAD_IN_GAMING_MODE || ANALOG_PREDICTIVE_REGULAR_FORCE_MODE_IN_GAMING
 static inline uint8_t analog_matrix_base_mode(uint8_t row, uint8_t col) {
     analog_matrix_profile_t *cur_prof = profile_get_current();
     analog_key_config_t *    key_cfg  = &cur_prof->key_config[row][col];
@@ -206,7 +206,7 @@ static inline uint8_t analog_matrix_base_mode(uint8_t row, uint8_t col) {
 }
 
 static inline uint8_t analog_matrix_apply_gaming_mode_overrides(uint8_t row, uint8_t col, uint8_t mode) {
-#    if ANALOG_PREDICTIVE_REGULAR_IN_GAMING_MODE
+#    if ANALOG_PREDICTIVE_REGULAR_FORCE_MODE_IN_GAMING
     if (mode == AKM_RAPID && analog_matrix_is_gaming_mode() && analog_matrix_predictive_regular_key_matches(row, col)) {
         return AKM_REGULAR;
     }

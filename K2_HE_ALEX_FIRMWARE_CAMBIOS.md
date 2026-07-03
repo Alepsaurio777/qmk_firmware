@@ -321,6 +321,7 @@ C:\Users\Alex\keychron-qmk\K2HE_ALEX_2026-07-01_EXPERIMENT_RT_PREDICTIVE_V2_spac
 C:\Users\Alex\keychron-qmk\K2HE_ALEX_2026-07-01_EXPERIMENT_RT_PREDICTIVE_V3_CAP240_space_lshift_adc28_settle20_hc164stock.bin
 C:\Users\Alex\keychron-qmk\K2HE_ALEX_2026-07-02_EXPERIMENT_RT_PREDICTIVE_V4_ADVANCE02_CAP240_space_lshift_adc28_settle20_hc164stock.bin
 C:\Users\Alex\keychron-qmk\K2HE_ALEX_2026-07-02_EXPERIMENT_RT_PREDICTIVE_V5_ADVANCE02_CAP240_WASDregular_space_lshift_adc28_settle20_hc164stock.bin
+C:\Users\Alex\keychron-qmk\K2HE_ALEX_2026-07-02_EXPERIMENT_RT_PREDICTIVE_V6_ADVANCE02_CAP240_WASDlauncherSafe_space_lshift_adc28_settle20_hc164stock.bin
 ```
 
 La logica experimental solo actua si:
@@ -419,6 +420,24 @@ Con `ANALOG_PREDICTIVE_REGULAR_IN_GAMING_MODE`, W/A/S/D se fuerzan a
 press inicial adelantado para movimiento sin release/re-press dinamico de Rapid
 Trigger en esas cuatro teclas. Productividad y el source daily quedan con el
 flag apagado.
+
+La variante V6 mantiene el experimento de predictive regular para W/A/S/D, pero
+ya no fuerza esas teclas a `AKM_REGULAR`. El Launcher vuelve a mandar:
+
+- Si W/A/S/D estan en Regular, reciben predictive downstroke.
+- Si W/A/S/D estan en Rapid Trigger, se respeta Rapid Trigger.
+
+La receta temporal de V6 es:
+
+```c
+#define ANALOG_CONTINUOUS_RAPID_TRIGGER_IN_GAMING_MODE 1
+#define ANALOG_PREDICTIVE_ACTUATION_IN_GAMING_MODE 1
+#define ANALOG_PREDICTIVE_REGULAR_IN_GAMING_MODE 1
+#define ANALOG_PREDICTIVE_REGULAR_FORCE_MODE_IN_GAMING 0
+#define ANALOG_CONTINUOUS_RT_REPRESS_MAX_TRAVEL 240
+#define ANALOG_PREDICTIVE_ACTUATION_ADVANCE (2 * TRAVEL_SCALE)
+#define ANALOG_PREDICTIVE_ACTUATION_MIN_DELTA TRAVEL_SCALE
+```
 
 ### Logica
 
