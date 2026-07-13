@@ -80,18 +80,34 @@ void socd_action(void) {
             if ((analog_raw_matrix[row1] & (0x01 << col1)) && (analog_raw_matrix[row2] & (0x01 << col2))) {
                 switch (socd[i].type) {
                     case SOCD_PRI_DEEPER_TRAVEL:
-                    case SOCD_PRI_DEEPER_TRAVEL_SINGLE:
-                        if (analog_matrix_get_travel(row1, col1) > 230 && analog_matrix_get_travel(row2, col2) > 230) {
+                    case SOCD_PRI_DEEPER_TRAVEL_SINGLE: {
+                        uint8_t t1 = analog_matrix_get_travel(row1, col1);
+                        uint8_t t2 = analog_matrix_get_travel(row2, col2);
+
+                        if (t1 > 230 && t2 > 230) {
+                            // Both bottomed out: register both, or keep the
+                            // current winner only in SINGLE mode.
                             if (socd[i].type == SOCD_PRI_DEEPER_TRAVEL_SINGLE) {
                                 keep_last_state = true;
                             }
-                        } else if (socd_state[i] == KEY_2_ACTIVE && analog_matrix_get_travel(row1, col1) > analog_matrix_get_travel(row2, col2)) {
-                            socd_mask[row2] &= ~(0x01 << col2);
-                        } else if (socd_state[i] == KEY_1_ACTIVE && analog_matrix_get_travel(row1, col1)  < analog_matrix_get_travel(row2, col2)) {
-                            socd_mask[row1] &= ~(0x01 << col1);
-                        } else
-                            keep_last_state = true;
+                            break;
+                        }
+
+                        // Winner tracking with hysteresis: the challenger only
+                        // takes over when deeper than the current winner by
+                        // ANALOG_SOCD_DEEPER_HYSTERESIS. Prevents the output
+                        // flipping every scan on sensor noise at equal depths.
+                        if (socd_state[i] == KEY_1_ACTIVE) {
+                            if (t2 >= (uint16_t)t1 + ANALOG_SOCD_DEEPER_HYSTERESIS) socd_state[i] = KEY_2_ACTIVE;
+                        } else if (socd_state[i] == KEY_2_ACTIVE) {
+                            if (t1 >= (uint16_t)t2 + ANALOG_SOCD_DEEPER_HYSTERESIS) socd_state[i] = KEY_1_ACTIVE;
+                        } else {
+                            socd_state[i] = (t1 >= t2) ? KEY_1_ACTIVE : KEY_2_ACTIVE;
+                        }
+
+                        keep_last_state = true; // mask the loser via socd_state
                         break;
+                    }
 
                     case SOCD_PRI_LAST_KEYSTROKE:
                         if ((raw_matrix[row1] & (0x01 << col1)) && (analog_raw_matrix[row2] & (0x01 << col2)) && (changed_matrix[row2] & (0x01 << col2))) {

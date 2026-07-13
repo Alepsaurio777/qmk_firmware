@@ -5,3 +5,4 @@ KC_BLUETOOTH_ENABLE = no
 DEBOUNCE_TYPE = none
 MOUSEKEY_ENABLE = no
 LTO_ENABLE = yes
+SRC += telemetry.c

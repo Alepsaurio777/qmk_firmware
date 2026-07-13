@@ -15,12 +15,27 @@
  */
 
 #include QMK_KEYBOARD_H
-#include "xinput_keycodes.h"
+#include "analog_matrix_type.h"
 
 uint8_t profile_gobal_mode[PROFILE_COUNT] = {
     AKM_REGULAR,
     AKM_RAPID,
     AKM_RAPID,
+};
+
+// Sensibilidad RT por perfil, unidades de 0.1 mm (release 0 = hereda press).
+// Perfil 1 (gaming) asimetrico: release 0.2 mm (telemetria 12-jul: ruido
+// post-filtro con dedos apoyados = 0, margen sobrado), re-press 0.3 mm para
+// que la vibracion del dedo tras jump-reset/w-tap no re-dispare.
+const uint8_t profile_default_rt_sen[PROFILE_COUNT] = {
+    4, // typing: 0.4 mm simetrico (default de fabrica)
+    3, // gaming: press 0.3 mm
+    3,
+};
+const uint8_t profile_default_rt_sen_rls[PROFILE_COUNT] = {
+    0, // typing: hereda (0.4 mm)
+    2, // gaming: release 0.2 mm
+    2,
 };
 
 // clang-format off
@@ -41,11 +56,12 @@ const uint16_t PROGMEM default_profiles[PROFILE_COUNT][MATRIX_ROWS][MATRIX_COLS]
         0,                0,       0,       0,       0,       0,       0,       0,       0,       0,       0,                0,       0,       0,
         0,       0,       0,                                  0,                                  0,       0,       0,       0,       0,       0),
 
+    // Perfil 3 sin uso: era el gamepad Xbox de fabrica, eliminado.
     [2] = LAYOUT_ansi_84(
         0,       0,       0,       0,       0,       0,       0,       0,       0,       0,       0,       0,       0,       0,       0,       0,
-        XB_VIEW, 0,       0,       0,       0,       0,       0,       0,       0,       0,       0,       0,       0,       0,                XB_MEMU,
-        0,       0,       LS_UP,   XB_LB,   0,       0,       XB_RB,   RS_UP,   0,       0,       0,       XB_Y,    0,       0,                0,
-        0,       LS_LEFT, LS_DOWN, LS_RGHT, 0,       0,       RS_LEFT, RS_DOWN, RS_RGHT, 0,       XB_X,    XB_B,             0,                XB_XBOX,
-        XB_L3,            0,       0,       0,       0,       0,       0,       0,       0,       0,       XB_A,             XB_R3,   XB_UP,   0,
-        XB_LT,   0,       0,                                  0,                                  0,       0,       XB_RT,   XB_LEFT, XB_DOWN, XB_RGHT)
+        0,       0,       0,       0,       0,       0,       0,       0,       0,       0,       0,       0,       0,       0,                0,
+        0,       0,       0,       0,       0,       0,       0,       0,       0,       0,       0,       0,       0,       0,                0,
+        0,       0,       0,       0,       0,       0,       0,       0,       0,       0,       0,       0,                0,                0,
+        0,                0,       0,       0,       0,       0,       0,       0,       0,       0,       0,                0,       0,       0,
+        0,       0,       0,                                  0,                                  0,       0,       0,       0,       0,       0)
 };

@@ -39,6 +39,10 @@ enum {
     KEY_RATE_COMBO_8K     = KEY_RATE_PRESS_FN | KEY_RATE_PRESS_SELECT | KEY_RATE_PRESS_8K,
 };
 
+#ifndef KEYCHRON_DEFAULT_REPORT_RATE_DIV
+#    define KEYCHRON_DEFAULT_REPORT_RATE_DIV 3
+#endif
+
 static uint8_t report_rate_div   = 0;
 static uint8_t report_rate_combo = 0;
 
@@ -48,19 +52,25 @@ void report_rate_update_interval(void) {
 }
 
 void report_rate_reset(void) {
-    report_rate_div = 3;
+    report_rate_div = KEYCHRON_DEFAULT_REPORT_RATE_DIV;
     eeprom_update_byte((uint8_t *)(EECONFIG_BASE_HSUSB_REPORT_RATE), report_rate_div);
     report_rate_update_interval();
 }
 
 void report_rate_init(void) {
-    report_rate_div = 3;
+    report_rate_div = KEYCHRON_DEFAULT_REPORT_RATE_DIV;
 
     if (!eeconfig_is_enabled()) {
         eeconfig_init();
     }
+#ifdef KEYCHRON_FIXED_REPORT_RATE
+    // Rate fijado en compile-time: ignora el valor persistido y sincroniza la
+    // EEPROM para que Launcher/get reporten el valor real.
+    eeprom_update_byte((uint8_t *)(EECONFIG_BASE_HSUSB_REPORT_RATE), report_rate_div);
+#else
     report_rate_div = eeprom_read_byte((uint8_t *)(EECONFIG_BASE_HSUSB_REPORT_RATE));
     if (report_rate_div > 6) report_rate_div = 0;
+#endif
 
     report_rate_update_interval();
 }
@@ -74,6 +84,12 @@ static bool report_rate_get(uint8_t *data) {
 static bool report_rate_set(uint8_t *data, bool notify) {
     if (data[0] > 6) return false;
 
+#ifdef KEYCHRON_FIXED_REPORT_RATE
+    // Rechaza cambios en runtime (HID de Launcher o combos Fn) cuando el rate
+    // esta fijado en compile-time.
+    return false;
+#else
+
     report_rate_div = data[0];
     eeprom_update_byte((uint8_t *)(EECONFIG_BASE_HSUSB_REPORT_RATE), report_rate_div);
     report_rate_update_interval();
@@ -86,6 +102,7 @@ static bool report_rate_set(uint8_t *data, bool notify) {
     (void)notify;
 
     return true;
+#endif
 }
 
 void report_rate_hid_rx(uint8_t *data, uint8_t length) {

@@ -92,7 +92,11 @@
 #define FN_KEY_2 MO(3)
 #define FN_BL_TRIG_KEY KC_END
 
+// Polling rate fijado en compile-time: div 0 = 8 kHz en el bus high-speed.
+// KEYCHRON_FIXED_REPORT_RATE ignora la EEPROM y bloquea cambios en runtime
+// (HID de Launcher y combos Fn), asi el rate es deterministico en cada boot.
 #define KEYCHRON_DEFAULT_REPORT_RATE_DIV 0
+#define KEYCHRON_FIXED_REPORT_RATE
 
 // Disable QMK core debounce to prevent rapid trigger delay
 #define DEBOUNCE 0
@@ -129,12 +133,20 @@
 #define ANALOG_FIXED_POINT_TRAVEL 1
 #define ANALOG_AUTO_CALIBRATION_ENABLE 0
 
+// Fase 2c: aprender bottom-out por tecla desde uso real, en housekeeping (no
+// en el scan). Solo-crece: el rango dinamico nunca puede degradarse solo.
+// Complementa la calibracion de reposo de arranque (CALIB_ZERO_TRAVEL_POWER_ON)
+// que ya compensa drift termico en cada boot.
+#define ANALOG_BOTTOM_OUT_LEARN 1
+
 // In Gaming layers, ignore Launcher advanced mappings that can synthesize or
 // latch input and fall back to the key's base profile mode.
 #define ANALOG_DISABLE_OKMC_IN_GAMING_MODE 1
 #define ANALOG_DISABLE_TOGGLE_IN_GAMING_MODE 1
 #define ANALOG_DISABLE_GAMEPAD_IN_GAMING_MODE 1
-#define ANALOG_DISABLE_SOCD_IN_GAMING_MODE 1
+// SOCD habilitado para pruebas en MC 1.8.9 (baneado en CS2; verificar reglas
+// del server antes de usar en ranked/torneos).
+#define ANALOG_DISABLE_SOCD_IN_GAMING_MODE 0
 #define ANALOG_DISABLE_PROFILE_COMBO_IN_GAMING_MODE 1
 #define ANALOG_CONTINUOUS_RAPID_TRIGGER_IN_GAMING_MODE 0
 #define ANALOG_CONTINUOUS_RT_REPRESS_MAX_TRAVEL 240

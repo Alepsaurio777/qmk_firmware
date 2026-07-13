@@ -18,6 +18,11 @@
 #include "analog_matrix.h"
 #include "keychron_common.h"
 #include "profile.h"
+#include "telemetry.h"
+
+enum custom_keycodes {
+    TELEM_TG = QK_USER_0, // toggle telemetria de profundidad (solo Win/productividad)
+};
 
 enum layers {
     GAMING_BASE,
@@ -39,12 +44,15 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
         KC_LSFT,            KC_Z,     KC_X,     KC_C,     KC_V,     KC_B,     KC_N,     KC_M,     KC_COMM,  KC_DOT,   KC_SLSH,            KC_RSFT,  KC_UP,    KC_END,
         KC_LCTL,  KC_LGUI,  KC_LALT,                                KC_SPC,                                 KC_RALT,  FN_GAMING,KC_RCTL,  KC_LEFT,  KC_DOWN,  KC_RGHT),
 
+    // Capa inalcanzable en Gaming (FN_GAMING = KC_NO y process_record_user
+    // bloquea todo layer-switch); se mantiene vacia solo para conservar la
+    // numeracion de capas que espera el interruptor fisico.
     [GAMING_FN] = LAYOUT_ansi_84(
         _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,
         _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,            _______,
         _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,            _______,
         _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,            _______,            _______,
-        _______,            PROF1,    PROF2,    PROF3,    _______,  _______,  _______,  _______,  _______,  _______,  _______,            _______,  _______,  _______,
+        _______,            _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,            _______,  _______,  _______,
         _______,  _______,  _______,                                _______,                                _______,  _______,  _______,  _______,  _______,  _______),
 
     [WIN_BASE] = LAYOUT_ansi_84(
@@ -58,7 +66,7 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
     [WIN_FN] = LAYOUT_ansi_84(
         _______,  KC_BRID,  KC_BRIU,  KC_TASK,  KC_FILE,  UG_VALD,  UG_VALU,  KC_MPRV,  KC_MPLY,  KC_MNXT,  KC_MUTE,  KC_VOLD,  KC_VOLU,  _______,  _______,  UG_TOGG,
         _______,  BT_HST1,  BT_HST2,  BT_HST3,  P2P4G,    _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,            _______,
-        UG_TOGG,  UG_NEXT,  UG_VALU,  UG_HUEU,  UG_SATU,  UG_SPDU,  _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,            _______,
+        UG_TOGG,  UG_NEXT,  UG_VALU,  UG_HUEU,  UG_SATU,  UG_SPDU,  TELEM_TG, _______,  _______,  _______,  _______,  _______,  _______,  _______,            _______,
         _______,  UG_PREV,  UG_VALD,  UG_HUED,  UG_SATD,  UG_SPDD,  _______,  _______,  _______,  _______,  _______,  _______,            _______,            _______,
         _______,            PROF1,    PROF2,    PROF3,    _______,  BAT_LVL,  _______,  _______,  _______,  _______,  _______,            _______,  _______,  _______,
         _______,  _______,  _______,                                _______,                                _______,  _______,  _______,  _______,  _______,  _______)
@@ -99,6 +107,8 @@ layer_state_t default_layer_state_set_user(layer_state_t state) {
 }
 
 void housekeeping_task_user(void) {
+    telemetry_task();
+
     if (!pending_profile_rebuild) return;
 
     pending_profile_rebuild = false;
@@ -115,6 +125,11 @@ void housekeeping_task_user(void) {
 }
 
 bool process_record_user(uint16_t keycode, keyrecord_t *record) {
+    if (keycode == TELEM_TG) {
+        if (record->event.pressed) telemetry_toggle();
+        return false;
+    }
+
     // Si estamos en modo Gaming (Interruptor fisico en Mac = Capas 0 y 1)
     if (analog_matrix_is_gaming_mode()) {
         // Bloquear todas las Macros de VIA

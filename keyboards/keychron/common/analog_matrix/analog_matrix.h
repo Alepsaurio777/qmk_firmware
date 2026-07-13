@@ -155,6 +155,26 @@ static inline bool analog_matrix_is_gaming_mode(void) {
 #    define ANALOG_AUTO_CALIBRATION_ENABLE 1
 #endif
 
+/* Learn per-key bottom-out from real usage, outside the scan hot path.
+ * The learned full-travel only ever deepens (never shrinks), so the dynamic
+ * range cannot degrade on its own. Runs in analog_matrix_task(). */
+#ifndef ANALOG_BOTTOM_OUT_LEARN
+#    define ANALOG_BOTTOM_OUT_LEARN 0
+#endif
+
+/* Minimum improvement (raw ADC counts) before committing a learned bottom-out. */
+#ifndef ANALOG_BOTTOM_OUT_LEARN_EPSILON
+#    define ANALOG_BOTTOM_OUT_LEARN_EPSILON 30
+#endif
+
+/* Depth-compare SOCD (Rappy Snappy): a challenger key must be deeper than the
+ * current winner by this many travel units (TRAVEL_SCALE units; 6 = 0.1 mm)
+ * to take over. Without it, sensor noise at near-equal depths flips the
+ * winner every scan (A/D chatter at scan rate). */
+#ifndef ANALOG_SOCD_DEEPER_HYSTERESIS
+#    define ANALOG_SOCD_DEEPER_HYSTERESIS 6
+#endif
+
 #ifndef ANALOG_DISABLE_OKMC_IN_GAMING_MODE
 #    define ANALOG_DISABLE_OKMC_IN_GAMING_MODE 0
 #endif

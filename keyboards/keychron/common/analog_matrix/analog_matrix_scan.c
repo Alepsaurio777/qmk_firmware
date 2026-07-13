@@ -53,6 +53,44 @@
 #    error "ANALOG_DEBOUNCE_TIME must be >= 1; 0 underflows the analog debounce loop"
 #endif
 
+/* Pipelined scan: process the previous column's samples during the analog
+ * settle window of the current column, instead of busy-waiting. Recovers up to
+ * ANALOG_SELECT_SETTLE_US per column of otherwise dead CPU time. Only valid
+ * with single-pass sampling (the multi-pass debounce loop re-reads the ADC). */
+#ifndef ANALOG_SCAN_PIPELINE
+#    define ANALOG_SCAN_PIPELINE 0
+#endif
+
+#if ANALOG_SCAN_PIPELINE && ANALOG_DEBOUNCE_TIME != 1
+#    error "ANALOG_SCAN_PIPELINE requires ANALOG_DEBOUNCE_TIME == 1"
+#endif
+
+/* SOF-synchronized scan: delay the scan start until a fixed offset after the
+ * USB Start-of-Frame so the scan (and the report it produces) lands just
+ * before the next host poll. Turns the free-running scan<->poll phase lottery
+ * (up to ~1 frame of extra latency, random per keystroke) into a constant.
+ * Requires USB_SOF_TIMING_PROBE for the SOF timestamp. */
+#ifndef ANALOG_SCAN_SOF_SYNC
+#    define ANALOG_SCAN_SOF_SYNC 0
+#endif
+
+#if ANALOG_SCAN_SOF_SYNC && !defined(USB_SOF_TIMING_PROBE)
+#    error "ANALOG_SCAN_SOF_SYNC requires USB_SOF_TIMING_PROBE (SOF timestamp source)"
+#endif
+
+/* Scan start offset after SOF. Keep small: the tail of the frame must fit the
+ * scan itself plus QMK's change processing so the report is armed before the
+ * next poll. */
+#ifndef ANALOG_SCAN_SOF_START_OFFSET_US
+#    define ANALOG_SCAN_SOF_START_OFFSET_US 10
+#endif
+
+/* Never spin longer than this waiting for the start offset; if we are further
+ * out of phase, run free this frame and let the next one resynchronize. */
+#ifndef ANALOG_SCAN_SOF_MAX_WAIT_US
+#    define ANALOG_SCAN_SOF_MAX_WAIT_US 400
+#endif
+
 #ifndef HC164_DELAY_NOPS
 #    define HC164_DELAY_NOPS 50
 #endif
@@ -261,6 +299,43 @@ void matrix_read_rows_on_col(uint8_t current_col, matrix_row_t row_shifter) {
     unselect_col(current_col);
 }
 
+#if ANALOG_SCAN_PIPELINE
+// Identico al procesado por-fila de matrix_read_rows_on_col con una sola
+// pasada (ANALOG_DEBOUNCE_TIME == 1): la rama de recheck del debounce es
+// inalcanzable y se omite.
+static void process_col_samples(uint8_t col, matrix_row_t row_shifter, const adcsample_t *smp) {
+    uint8_t row_value = 0;
+    bool    changed   = false;
+
+    for (uint8_t row_index = 0; row_index < MATRIX_ROWS; row_index++) {
+        if ((analog_matrix_mask[row_index] & row_shifter) == 0) continue;
+
+        update_raw_value(row_index, col, smp[row_index]);
+
+        bool pressed = analog_matrix_get_key_state(row_index, col);
+        if (pressed) {
+            if ((analog_raw_matrix[row_index] & row_shifter) == 0) changed = true;
+            row_value |= (0x01 << row_index);
+        } else if (analog_raw_matrix[row_index] & row_shifter) {
+            changed = true;
+        }
+    }
+
+    if (changed) {
+        matrix_changed = true;
+        for (uint8_t row_index = 0; row_index < MATRIX_ROWS; row_index++) {
+            if (row_value & (0x01 << row_index)) {
+                if ((analog_raw_matrix[row_index] & row_shifter) == 0) changed_matrix[row_index] |= row_shifter;
+                analog_raw_matrix[row_index] |= row_shifter;
+            } else {
+                if ((analog_raw_matrix[row_index] & row_shifter)) changed_matrix[row_index] |= row_shifter;
+                analog_raw_matrix[row_index] &= ~row_shifter;
+            }
+        }
+    }
+}
+#endif
+
 void matrix_init_custom(void) {
     uint32_t smpr[2] = {0, 0};
     uint32_t sqr[3]  = {0, 0, 0};
@@ -329,8 +404,49 @@ void matrix_init_custom(void) {
     analog_matrix_init();
 }
 
+#if defined(USB_SOF_TIMING_PROBE)
+// Fase 3 (instrumentacion): medir duracion del barrido completo y su fase
+// respecto al ultimo SOF USB. Solo lecturas del contador de ciclos; no anade
+// trabajo apreciable al scan.
+extern volatile uint32_t usb_sof_timing_last_cycles;
+volatile uint32_t        scan_probe_count       = 0;
+volatile uint16_t        scan_probe_duration_us = 0;
+volatile uint16_t        scan_probe_phase_us    = 0;
+#    define SCAN_PROBE_CYC_PER_US (STM32_SYSCLK / 1000000)
+#endif
+
 bool matrix_scan_custom(matrix_row_t current_matrix[]) {
     matrix_row_t last_raw_matrix[MATRIX_ROWS];
+
+#if ANALOG_SCAN_SOF_SYNC
+    {
+        extern volatile uint32_t usb_sof_timing_last_cycles;
+        const uint32_t cyc_per_us = STM32_SYSCLK / 1000000;
+        const uint32_t frame_cyc  = 1000 * cyc_per_us;
+        const uint32_t offset_cyc = ANALOG_SCAN_SOF_START_OFFSET_US * cyc_per_us;
+
+        uint32_t sof   = usb_sof_timing_last_cycles;
+        uint32_t now   = chSysGetRealtimeCounterX();
+        uint32_t since = now - sof;
+
+        // Solo sincronizar con SOF vivo (bus activo); en suspension/arranque
+        // el barrido corre libre y no hay riesgo de deadlock.
+        if (since < 2 * frame_cyc) {
+            uint32_t phase = since % frame_cyc;
+            uint32_t wait  = (phase <= offset_cyc) ? (offset_cyc - phase) : (frame_cyc - phase + offset_cyc);
+
+            if (wait <= (uint32_t)ANALOG_SCAN_SOF_MAX_WAIT_US * cyc_per_us) {
+                uint32_t target = now + wait;
+                while ((int32_t)(chSysGetRealtimeCounterX() - target) < 0) {
+                }
+            }
+        }
+    }
+#endif
+
+#if defined(USB_SOF_TIMING_PROBE)
+    uint32_t probe_start = chSysGetRealtimeCounterX();
+#endif
 
     memcpy(last_raw_matrix, raw_matrix, sizeof(raw_matrix));
     memcpy(virtual_matrix, matrix, sizeof(matrix));
@@ -338,10 +454,48 @@ bool matrix_scan_custom(matrix_row_t current_matrix[]) {
     matrix_changed = false;
 
     // Set col, read rows
+#if ANALOG_SCAN_PIPELINE
+    {
+        static adcsample_t pend[ADC_GRP_NUM_CHANNELS];
+        bool               pend_valid   = false;
+        uint8_t            pend_col     = 0;
+        matrix_row_t       pend_shifter = 0;
+        const uint32_t     settle_cyc   = (uint32_t)ANALOG_SELECT_SETTLE_US * (STM32_SYSCLK / 1000000);
+
+        matrix_row_t row_shifter = MATRIX_ROW_SHIFTER;
+        for (uint8_t current_col = 0; current_col < MATRIX_COLS; current_col++, row_shifter <<= 1) {
+            // La columna queda seleccionada al avanzar el shift register (en
+            // unselect_col de la iteracion previa; col 0 en select_col).
+            select_col(current_col);
+            uint32_t settle_t0 = chSysGetRealtimeCounterX();
+
+            // Trabajo util durante la ventana de settle analogico.
+            if (pend_valid) process_col_samples(pend_col, pend_shifter, pend);
+
+            while ((uint32_t)(chSysGetRealtimeCounterX() - settle_t0) < settle_cyc) {
+            }
+
+            if (adcConvert(&ADCD1, &adcgrpcfg, samples, ADC_GRP_BUF_DEPTH) == MSG_OK) {
+                memcpy(pend, samples, sizeof(pend));
+                pend_col     = current_col;
+                pend_shifter = row_shifter;
+                pend_valid   = true;
+            } else {
+                // Igual que el camino clasico: columna sin procesar ante fallo
+                // de ADC, se conserva el estado previo.
+                pend_valid = false;
+            }
+
+            unselect_col(current_col);
+        }
+        if (pend_valid) process_col_samples(pend_col, pend_shifter, pend);
+    }
+#else
     matrix_row_t row_shifter = MATRIX_ROW_SHIFTER;
     for (uint8_t current_col = 0; current_col < MATRIX_COLS; current_col++, row_shifter <<= 1) {
         matrix_read_rows_on_col(current_col, row_shifter);
     }
+#endif
 
     analog_matrix_task();
     for (uint8_t row = 0; row < MATRIX_ROWS; row++) {
@@ -368,6 +522,18 @@ bool matrix_scan_custom(matrix_row_t current_matrix[]) {
 
     bool changed = memcmp(raw_matrix, last_raw_matrix, sizeof(last_raw_matrix)) != 0;
     // changed = debounce(raw_matrix, matrix, MATRIX_ROWS, changed);
+
+#if defined(USB_SOF_TIMING_PROBE)
+    {
+        uint32_t probe_end = chSysGetRealtimeCounterX();
+        uint32_t dur_us    = (probe_end - probe_start) / SCAN_PROBE_CYC_PER_US;
+        uint32_t phase_us  = (probe_end - usb_sof_timing_last_cycles) / SCAN_PROBE_CYC_PER_US;
+
+        scan_probe_duration_us = dur_us > UINT16_MAX ? UINT16_MAX : (uint16_t)dur_us;
+        scan_probe_phase_us    = phase_us > 9999 ? 9999 : (uint16_t)phase_us;
+        scan_probe_count++;
+    }
+#endif
 
     return matrix_changed | changed;
 }

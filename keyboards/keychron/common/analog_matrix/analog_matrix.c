@@ -21,7 +21,7 @@
 #include "eeprom.h"
 #include "eeprom_he.h"
 
-#if ANALOG_AUTO_CALIBRATION_ENABLE
+#if ANALOG_AUTO_CALIBRATION_ENABLE || ANALOG_BOTTOM_OUT_LEARN
 static bool calibration_dirty = false;
 #endif
 #include "usb_main.h"
@@ -1063,12 +1063,52 @@ bool get_realtime_travel(uint8_t *data) {
     return true;
 }
 
+#if ANALOG_BOTTOM_OUT_LEARN
+/* Only-grow bottom-out learning (deeper raw ADC = lower value). Reads the
+ * filtered raw values already produced by the scan; never runs in the scan
+ * itself. A learned value only replaces the current one when it is deeper by
+ * at least ANALOG_BOTTOM_OUT_LEARN_EPSILON, clamped to the valid sensor range,
+ * so noise or a corrupt sample can never shrink the dynamic range. */
+static void bottom_out_learn_task(void) {
+    // analog_matrix_task() corre dentro del barrido de matriz (hot path), no
+    // en housekeeping: limitar el aprendizaje a una pasada cada 50 ms para no
+    // alargar el barrido (medido: la pasada completa cuesta ~10-15 us).
+    static uint32_t last_learn = 0;
+    if (timer_elapsed32(last_learn) < 50) return;
+    last_learn = timer_read32();
+
+    for (uint8_t r = 0; r < MATRIX_ROWS; r++) {
+        if (analog_matrix_mask[r] == 0) continue;
+        for (uint8_t c = 0; c < MATRIX_COLS; c++) {
+            if ((analog_matrix_mask[r] & (0x01U << c)) == 0) continue;
+
+            uint16_t raw = analog_key_matrix[r][c].value;
+            if (raw == 0 || raw < VALID_ANALOG_RAW_VALUE_MIN) continue;
+
+            uint16_t learned = raw + BOTTOM_JITTER;
+            if (learned + ANALOG_BOTTOM_OUT_LEARN_EPSILON < calib_values[r][c].full_travel) {
+                calib_values[r][c].full_travel       = learned;
+                saved_calib_values[r][c].full_travel = learned;
+                update_scale_factor(r, c);
+                calibration_dirty = true;
+            }
+        }
+    }
+}
+#endif
+
 void analog_matrix_task(void) {
     calibrate();
 
-#if ANALOG_AUTO_CALIBRATION_ENABLE
+#if ANALOG_BOTTOM_OUT_LEARN
+    bottom_out_learn_task();
+#endif
+
+#if ANALOG_AUTO_CALIBRATION_ENABLE || ANALOG_BOTTOM_OUT_LEARN
     extern uint32_t last_input_activity_time(void);
-    if (calibration_dirty && timer_elapsed32(last_input_activity_time()) > 1000) {
+    // Skip the (blocking, I2C) EEPROM flush while in gaming mode; the learned
+    // values stay in RAM and get persisted on the next idle window outside it.
+    if (calibration_dirty && !analog_matrix_is_gaming_mode() && timer_elapsed32(last_input_activity_time()) > 1000) {
         extern matrix_row_t analog_raw_matrix[MATRIX_ROWS];
         bool has_key = false;
         for (uint8_t i = 0; i < MATRIX_ROWS; i++) {

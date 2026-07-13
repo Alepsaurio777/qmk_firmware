@@ -137,7 +137,18 @@ void kc_raw_hid_send(uint8_t src, uint8_t *data, uint8_t len) {
 #    endif
 }
 
+/* Keymap-level hook invoked for every incoming raw HID command, before any
+ * dispatch. Lets the keymap react to a config client starting to talk (e.g.
+ * stop a debug stream that shares the endpoint). */
+__attribute__((weak)) void kc_raw_hid_rx_user(uint8_t src, uint8_t *data, uint8_t length) {
+    (void)src;
+    (void)data;
+    (void)length;
+}
+
 bool kc_raw_hid_rx(uint8_t src, uint8_t *data, uint8_t length) {
+    kc_raw_hid_rx_user(src, data, length);
+
 #    if defined(ANANLOG_MATRIX) && defined(VIA_ENABLE)
     if (src == RAW_HID_SRC_USB && data[0] == id_get_keyboard_value && data[1] == id_switch_matrix_state) {
         send_analog_matrix(data, length);

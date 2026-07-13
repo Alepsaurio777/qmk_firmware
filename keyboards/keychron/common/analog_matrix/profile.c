@@ -99,6 +99,19 @@ enum {
 extern uint8_t  profile_gobal_mode[PROFILE_COUNT];
 extern uint16_t default_profiles[PROFILE_COUNT][MATRIX_ROWS][MATRIX_COLS];
 
+/* Per-profile RT sensitivity defaults (0.1mm units). Release 0 = inherit from
+ * press. Boards may override with strong definitions next to
+ * profile_gobal_mode. */
+__attribute__((weak)) const uint8_t profile_default_rt_sen[PROFILE_COUNT] = {
+    [0 ... PROFILE_COUNT - 1] = DEFAULT_RAPID_TRIGGER_SENSITIVITY,
+};
+__attribute__((weak)) const uint8_t profile_default_rt_sen_rls[PROFILE_COUNT] = {0};
+
+static inline uint8_t profile_default_rt_sen_rls_get(uint8_t prof_idx) {
+    uint8_t rls = profile_default_rt_sen_rls[prof_idx];
+    return (rls == 0 || rls > 39) ? profile_default_rt_sen[prof_idx] : rls;
+}
+
 static analog_matrix_profile_t  profile[PROFILE_COUNT];
 static uint8_t                  current_profile_index;
 static analog_matrix_profile_t *cur_prof       = &profile[0]; // current profile
@@ -178,8 +191,8 @@ void profile_init(bool reset) {
 
             // Resotre to default if not in valid range
             if (profile[i].global.act_pt == 0 || profile[i].global.act_pt > 39) profile[i].global.act_pt = DEFAULT_ACTUATION_POINT;
-            if (profile[i].global.rpd_trig_sen == 0 || profile[i].global.rpd_trig_sen > 39) profile[i].global.rpd_trig_sen = DEFAULT_RAPID_TRIGGER_SENSITIVITY;
-            if (profile[i].global.rpd_trig_sen_deact == 0 || profile[i].global.rpd_trig_sen_deact > 39) profile[i].global.rpd_trig_sen_deact = profile[i].global.rpd_trig_sen;
+            if (profile[i].global.rpd_trig_sen == 0 || profile[i].global.rpd_trig_sen > 39) profile[i].global.rpd_trig_sen = profile_default_rt_sen[i];
+            if (profile[i].global.rpd_trig_sen_deact == 0 || profile[i].global.rpd_trig_sen_deact > 39) profile[i].global.rpd_trig_sen_deact = profile_default_rt_sen_rls_get(i);
             profile_apply_default_rapid_keys(i);
             profile_apply_default_regular_keys(i);
         }
@@ -382,7 +395,8 @@ bool profile_reset(uint8_t prof_index) {
     // Default
     prof->global.mode               = profile_gobal_mode[prof_index];
     prof->global.act_pt             = DEFAULT_ACTUATION_POINT;
-    prof->global.rpd_trig_sen_deact = prof->global.rpd_trig_sen = DEFAULT_RAPID_TRIGGER_SENSITIVITY;
+    prof->global.rpd_trig_sen       = profile_default_rt_sen[prof_index];
+    prof->global.rpd_trig_sen_deact = profile_default_rt_sen_rls_get(prof_index);
 
     for (uint8_t r = 0; r < MATRIX_ROWS; r++)
         for (uint8_t c = 0; c < MATRIX_COLS; c++) {
