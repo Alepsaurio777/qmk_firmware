@@ -353,6 +353,15 @@ static __attribute__((unused)) void usb_sof_cb(USBDriver *usbp) {
     usb_sof_timing_last_cycles = chSysGetRealtimeCounterX();
 #endif
 #if defined(USB_REPORT_INTERVAL_ENABLE)
+    /* With no report throttling (interval 0, i.e. full 1000 Hz), pacing is
+     * inert and the queue already drains via obnotify/tx_complete. Skip the
+     * whole block -- notably the 20 us busy-wait in ISR context, which stole
+     * CPU from (and added jitter to) whatever it preempted, every frame. */
+    if (usbp->report_interval[KEYBOARD_IN_EPNUM] == 0 && usbp->report_interval[SHARED_IN_EPNUM] == 0) {
+        (void)usbp;
+        return;
+    }
+
     wait_us(20);
     if (usbp->epc[KEYBOARD_IN_EPNUM]) {
         USBInEndpointState *isp = usbp->epc[KEYBOARD_IN_EPNUM]->in_state;

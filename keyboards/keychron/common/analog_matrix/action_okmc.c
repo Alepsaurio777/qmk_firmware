@@ -67,83 +67,85 @@ static void release_okmc_keys(okmc_config_t *okmc) {
     send_keyboard_report();
 }
 
-static void inline shallow_actuate(okmc_config_t *okmc) {
-    bool any_action;
+/* Deferred OKMC action queue.
+ *
+ * The original stage functions ran send_keyboard_report() + wait_ms(1) up to
+ * three times INSIDE the matrix scan, freezing all key sampling for up to
+ * 3 ms whenever an OKMC fired. Instead, stages are queued here and exactly
+ * one bit-group is executed per scan pass. With the SOF-synchronized scan
+ * (1000 scans/s) that reproduces the original 1 ms spacing between reports
+ * -- one report per USB frame -- without ever blocking the scan. */
 
-    for (uint8_t bit = 0; bit < 3; bit++) {
-        any_action = false;
+enum {
+    OKMC_FIELD_SHALLOW_ACT,
+    OKMC_FIELD_SHALLOW_DEACT, // groups + release_okmc_keys at the end
+    OKMC_FIELD_DEEP_ACT,
+    OKMC_FIELD_DEEP_DEACT,
+    OKMC_FIELD_RELEASE_ONLY, // release_okmc_keys, no groups
+};
 
-        for (uint8_t i = 0; i < 4; ++i) {
-            if (okmc->keycode[i] && (okmc->action[i].shallow_act & (0x01 << bit))) {
-                report_action(bit % 2, okmc->keycode[i]);
-                any_action = true;
-            }
-        }
-        if (any_action) {
-            send_keyboard_report();
-            wait_ms(1);
-        }
+typedef struct {
+    uint8_t okmc_idx;
+    uint8_t field;
+} okmc_pending_t;
+
+#define OKMC_QUEUE_DEPTH 8
+static okmc_pending_t okmc_queue[OKMC_QUEUE_DEPTH];
+static uint8_t        okmc_q_head, okmc_q_count;
+static uint8_t        okmc_q_bit; // bit-group progress of the head entry
+
+static void okmc_enqueue(uint8_t okmc_idx, uint8_t field) {
+    if (okmc_q_count >= OKMC_QUEUE_DEPTH) return; // drop; queue depth covers any realistic burst
+    okmc_queue[(okmc_q_head + okmc_q_count) % OKMC_QUEUE_DEPTH] = (okmc_pending_t){okmc_idx, field};
+    okmc_q_count++;
+}
+
+static uint8_t okmc_field_actions(const okmc_config_t *okmc, uint8_t field, uint8_t i) {
+    switch (field) {
+        case OKMC_FIELD_SHALLOW_ACT:
+            return okmc->action[i].shallow_act;
+        case OKMC_FIELD_SHALLOW_DEACT:
+            return okmc->action[i].shallow_deact;
+        case OKMC_FIELD_DEEP_ACT:
+            return okmc->action[i].deep_act;
+        case OKMC_FIELD_DEEP_DEACT:
+            return okmc->action[i].deep_deact;
+        default:
+            return 0;
     }
 }
 
-static void inline shallow_deactuate(okmc_config_t *okmc) {
-    bool any_action;
+// Runs once per scan from analog_matrix_task(): executes at most one
+// bit-group (one HID report) and returns.
+void okmc_deferred_task(void) {
+    if (okmc_q_count == 0) return;
 
-    for (uint8_t bit = 0; bit < 3; bit++) {
-        any_action = false;
+    okmc_pending_t *pend = &okmc_queue[okmc_q_head];
+    okmc_config_t  *okmc = &profile_get_current()->okmc[pend->okmc_idx];
+
+    while (pend->field != OKMC_FIELD_RELEASE_ONLY && okmc_q_bit < 3) {
+        bool    any_action = false;
+        uint8_t bit        = okmc_q_bit++;
 
         for (uint8_t i = 0; i < 4; ++i) {
-            if (okmc->keycode[i] && (okmc->action[i].shallow_deact & (0x01 << bit))) {
+            if (okmc->keycode[i] && (okmc_field_actions(okmc, pend->field, i) & (0x01 << bit))) {
                 report_action(bit % 2, okmc->keycode[i]);
                 any_action = true;
             }
         }
         if (any_action) {
             send_keyboard_report();
-            wait_ms(1);
+            return; // one report per scan; next group on the next pass
         }
     }
 
-    send_keyboard_report();
-    release_okmc_keys(okmc);
-}
-
-static void inline deep_actuate(okmc_config_t *okmc) {
-    bool any_action;
-
-    for (uint8_t bit = 0; bit < 3; bit++) {
-        any_action = false;
-
-        for (uint8_t i = 0; i < 4; ++i) {
-            if (okmc->keycode[i] && (okmc->action[i].deep_act & (0x01 << bit))) {
-                report_action(bit % 2, okmc->keycode[i]);
-                any_action = true;
-            }
-        }
-        if (any_action) {
-            send_keyboard_report();
-            wait_ms(1);
-        }
+    // Groups exhausted (or release-only entry): run the epilogue and pop.
+    if (pend->field == OKMC_FIELD_SHALLOW_DEACT || pend->field == OKMC_FIELD_RELEASE_ONLY) {
+        release_okmc_keys(okmc);
     }
-}
-
-static void inline deep_deactuate(okmc_config_t *okmc) {
-    bool any_action;
-
-    for (uint8_t bit = 0; bit < 3; bit++) {
-        any_action = false;
-
-        for (uint8_t i = 0; i < 4; ++i) {
-            if (okmc->keycode[i] && (okmc->action[i].deep_deact & (0x01 << bit))) {
-                report_action(bit % 2, okmc->keycode[i]);
-                any_action = true;
-            }
-        }
-        if (any_action) {
-            send_keyboard_report();
-            wait_ms(1);
-        }
-    }
+    okmc_q_head = (okmc_q_head + 1) % OKMC_QUEUE_DEPTH;
+    okmc_q_count--;
+    okmc_q_bit = 0;
 }
 
 bool okmc_action(analog_key_t *key) {
@@ -157,7 +159,7 @@ bool okmc_action(analog_key_t *key) {
             // Check shallow actuation
             if (key->travel >= travel_cfg->shallow_act * TRAVEL_SCALE) {
                 key->state = OKMC_SHALLOW_ACTUATED;
-                shallow_actuate(&cur_prof->okmc[key->okmc_idx]);
+                okmc_enqueue(key->okmc_idx, OKMC_FIELD_SHALLOW_ACT);
                 changed = true;
             }
             break;
@@ -166,13 +168,13 @@ bool okmc_action(analog_key_t *key) {
             // Key releasing
             if (key->travel < travel_cfg->shallow_deact * TRAVEL_SCALE && key->travel < (travel_cfg->shallow_act - 1) * TRAVEL_SCALE) {
                 key->state = OKMC_RELEASED;
-                release_okmc_keys(&cur_prof->okmc[key->okmc_idx]);
+                okmc_enqueue(key->okmc_idx, OKMC_FIELD_RELEASE_ONLY);
                 changed = true;
             }
             // Continue pressing
             else if (key->travel >= travel_cfg->deep_act * TRAVEL_SCALE) {
                 key->state = OKMC_DEEP_ACTUATED;
-                deep_actuate(&cur_prof->okmc[key->okmc_idx]);
+                okmc_enqueue(key->okmc_idx, OKMC_FIELD_DEEP_ACT);
                 changed = true;
             }
             break;
@@ -182,7 +184,7 @@ bool okmc_action(analog_key_t *key) {
                 key->state = OKMC_DEEP_DEACT_READY; // make su
             } else if (key->travel < travel_cfg->shallow_deact * TRAVEL_SCALE && key->travel < (travel_cfg->shallow_act - 1) * TRAVEL_SCALE) {
                 key->state = OKMC_RELEASED;
-                release_okmc_keys(&cur_prof->okmc[key->okmc_idx]);
+                okmc_enqueue(key->okmc_idx, OKMC_FIELD_RELEASE_ONLY);
                 changed = true;
             }
             break;
@@ -190,7 +192,7 @@ bool okmc_action(analog_key_t *key) {
         case OKMC_DEEP_DEACT_READY:
             if (key->travel <= travel_cfg->deep_deact * TRAVEL_SCALE) {
                 key->state = OKMC_DEEP_DEACTUATED;
-                deep_deactuate(&cur_prof->okmc[key->okmc_idx]);
+                okmc_enqueue(key->okmc_idx, OKMC_FIELD_DEEP_DEACT);
                 changed = true;
             }
             break;
@@ -199,7 +201,7 @@ bool okmc_action(analog_key_t *key) {
             // If we miss the deep deacuation point
             if (key->travel <= travel_cfg->shallow_deact * TRAVEL_SCALE && key->travel < (travel_cfg->shallow_act - 1) * TRAVEL_SCALE) {
                 key->state = OKMC_RELEASED;
-                shallow_deactuate(&cur_prof->okmc[key->okmc_idx]);
+                okmc_enqueue(key->okmc_idx, OKMC_FIELD_SHALLOW_DEACT);
                 changed = true;
             }
             break;
@@ -220,4 +222,7 @@ bool okmc_action(analog_key_t *key) {
 
 void okmc_clear(void) {
    memset(okmc_matrix, 0, sizeof(okmc_matrix));
+   okmc_q_head  = 0;
+   okmc_q_count = 0;
+   okmc_q_bit   = 0;
 }

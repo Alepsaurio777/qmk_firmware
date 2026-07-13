@@ -1126,6 +1126,10 @@ void analog_matrix_task(void) {
 
     profile_indication_timer_check();
     socd_action();
+
+    // Drain at most one OKMC action group per scan (see action_okmc.c).
+    extern void okmc_deferred_task(void);
+    okmc_deferred_task();
 #ifdef JOYSTICK_ENABLE
     extern void joystick_action_task(void);
     joystick_action_task();
