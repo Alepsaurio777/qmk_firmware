@@ -169,6 +169,10 @@ void evlog_record_event(uint16_t keycode, bool pressed, uint8_t row, uint8_t col
     if (!evlog_active) return;
     int8_t idx = evlog_key_index(keycode);
     if (idx < 0) return;
+    // Un evento virtual (macro/combo/SEND_STRING) llega con row/col centinela
+    // (0xFF). analog_matrix_get_travel no valida rango, asi que descartamos:
+    // no es una actuacion fisica y no tiene travel real que registrar.
+    if (row >= MATRIX_ROWS || col >= MATRIX_COLS) return;
     if (evlog_count >= EVLOG_RING) return; // burst improbable: dropea el mas nuevo
 
     evlog_event_t *e = &evlog_ring[(evlog_head + evlog_count) % EVLOG_RING];
