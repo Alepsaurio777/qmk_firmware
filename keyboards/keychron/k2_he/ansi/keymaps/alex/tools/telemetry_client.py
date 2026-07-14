@@ -5,8 +5,10 @@ Uso:
     pip install hidapi
     python telemetry_client.py           # consola: travel en vivo + ruido p-p
     python telemetry_client.py --plot    # grafica en vivo (requiere matplotlib)
+    python telemetry_client.py --events  # mistype-hunt: log de eventos + fantasmas
 
-Activa el stream en el teclado con Fn+Y (modo Win) antes o despues de arrancar.
+Travel: Fn+Y (solo modo Win). Eventos: Fn+U (funciona en Gaming — el objetivo
+es cazar fantasmas jugando de verdad).
 """
 
 import argparse
@@ -20,7 +22,13 @@ VID = 0x3434  # Keychron
 USAGE_PAGE = 0xFF60  # Raw HID QMK/VIA
 USAGE = 0x61
 MAGIC = 0xED
+EVLOG_MAGIC = 0xEC
 KEYS = ["W", "A", "S", "D", "SPC", "LSFT"]
+EVLOG_KEYS = ["W", "A", "S", "D", "SPC", "LSFT", "LCTL"]
+
+# Umbrales de deteccion de fantasmas (ajustables):
+DOUBLE_MS = 40       # release->press del mismo key en < esto = doble sospechoso
+MARGINAL_TRAVEL = 30  # press con travel < esto (~0.5mm) = actuacion marginal
 
 
 def find_device():
@@ -50,6 +58,84 @@ def parse(pkt):
             "phase_us": pkt[24] | (pkt[25] << 8),
         }
     return t_ms, seq, keys, scan
+
+
+def parse_events(pkt):
+    if len(pkt) < 3 or pkt[0] != EVLOG_MAGIC:
+        return None
+    n = pkt[2]
+    events = []
+    for i in range(n):
+        off = 3 + i * 5
+        if off + 5 > len(pkt):
+            break
+        t = pkt[off] | (pkt[off + 1] << 8)
+        key_idx = pkt[off + 2]
+        pressed = pkt[off + 3]
+        travel = pkt[off + 4]
+        events.append((t, key_idx, pressed, travel))
+    return events
+
+
+def run_events(dev, csv_path=None):
+    print("Mistype-hunt. Fn+U activa el logger (funciona en Gaming). Ctrl+C para salir.")
+    print(f"Marca DOBLE si release->press del mismo key en <{DOUBLE_MS} ms; "
+          f"MARGINAL si press con travel <{MARGINAL_TRAVEL} (~0.5mm).\n")
+    csv_file = open(csv_path, "w", encoding="utf-8") if csv_path else None
+    if csv_file:
+        csv_file.write("t_ms,key,event,travel,flag\n")
+
+    last = {}  # key_idx -> (t, pressed) del ultimo evento
+    counts = {k: {"press": 0, "release": 0, "double": 0, "marginal": 0} for k in EVLOG_KEYS}
+    try:
+        while True:
+            pkt = dev.read(32, timeout_ms=1000)
+            if not pkt:
+                continue
+            events = parse_events(pkt)
+            if not events:
+                continue
+            for t, key_idx, pressed, travel in events:
+                if key_idx >= len(EVLOG_KEYS):
+                    continue
+                name = EVLOG_KEYS[key_idx]
+                flag = ""
+                if pressed:
+                    counts[name]["press"] += 1
+                    if travel < MARGINAL_TRAVEL:
+                        flag = "MARGINAL"
+                        counts[name]["marginal"] += 1
+                    if key_idx in last:
+                        lt, lp = last[key_idx]
+                        dt = (t - lt) & 0xFFFF
+                        if lp == 0 and dt < DOUBLE_MS:
+                            flag = (flag + " DOBLE").strip()
+                            counts[name]["double"] += 1
+                else:
+                    counts[name]["release"] += 1
+                last[key_idx] = (t, pressed)
+                evt = "PRESS  " if pressed else "release"
+                line = f"[{t:5d}ms] {name:4s} {evt} travel={travel:3d}"
+                if flag:
+                    line += f"   <<< {flag}"
+                    print(line)  # solo imprime anomalias en vivo (menos ruido)
+                if csv_file:
+                    csv_file.write(f"{t},{name},{'press' if pressed else 'release'},{travel},{flag}\n")
+    except KeyboardInterrupt:
+        if csv_file:
+            csv_file.close()
+            print(f"\nSesion guardada en {csv_path}")
+        print("\nResumen por tecla:")
+        print(f"  {'tecla':5s} {'press':>6s} {'release':>8s} {'DOBLES':>7s} {'MARGINAL':>9s}")
+        for name in EVLOG_KEYS:
+            c = counts[name]
+            print(f"  {name:5s} {c['press']:6d} {c['release']:8d} {c['double']:7d} {c['marginal']:9d}")
+        total_ph = sum(c["double"] + c["marginal"] for c in counts.values())
+        if total_ph == 0:
+            print("\nLimpio: 0 dobles, 0 presses marginales. Firmware sin fantasmas en esta sesion.")
+        else:
+            print(f"\n{total_ph} eventos sospechosos. Si se concentran en LSFT/LCTL -> candidato a "
+                  "histeresis adaptativa (fix Wooting). Revisa el CSV para el contexto.")
 
 
 def run_console(dev):
@@ -174,11 +260,14 @@ def run_plot(dev, csv_path=None):
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
-    ap.add_argument("--plot", action="store_true", help="grafica en vivo con matplotlib")
-    ap.add_argument("--csv", metavar="ARCHIVO", help="guardar todas las muestras a CSV (solo con --plot)")
+    ap.add_argument("--plot", action="store_true", help="grafica de travel en vivo con matplotlib")
+    ap.add_argument("--events", action="store_true", help="mistype-hunt: log de eventos + deteccion de fantasmas")
+    ap.add_argument("--csv", metavar="ARCHIVO", help="guardar a CSV (con --plot o --events)")
     args = ap.parse_args()
     device = find_device()
-    if args.plot:
+    if args.events:
+        run_events(device, csv_path=args.csv)
+    elif args.plot:
         run_plot(device, csv_path=args.csv)
     else:
         run_console(device)

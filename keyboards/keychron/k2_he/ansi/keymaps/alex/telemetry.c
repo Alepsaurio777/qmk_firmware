@@ -64,6 +64,7 @@ void kc_raw_hid_rx_user(uint8_t src, uint8_t *data, uint8_t length) {
     (void)data;
     (void)length;
     telemetry_stop();
+    evlog_stop();
 }
 
 void telemetry_task(void) {
@@ -103,6 +104,100 @@ void telemetry_task(void) {
     pkt[24] = scan_probe_phase_us & 0xFF;
     pkt[25] = scan_probe_phase_us >> 8;
 #endif
+
+    raw_hid_send(pkt, TELEMETRY_EPSIZE);
+}
+
+// ===========================================================================
+// Logger de eventos (mistype-hunt)
+// ===========================================================================
+// A diferencia del stream de travel (200 Hz, apagado en Gaming), registra solo
+// CAMBIOS de estado de las teclas de movimiento, con el travel del instante. Al
+// ser event-driven su costo es ~cero cuando no pasa nada, asi que SI corre en
+// Gaming — el objetivo es cazar fantasmas en juego real (LShift/LCtrl en
+// especial). El analisis (dobles, presses marginales) lo hace el cliente.
+//   Paquete (32 B): [0] 0xEC  [1] version  [2] N eventos
+//     luego N x 5 bytes: [t_lo, t_hi, key_idx, pressed, travel]
+//   key_idx: 0=W 1=A 2=S 3=D 4=SPC 5=LSFT 6=LCTL
+#define EVLOG_MAGIC 0xEC
+#define EVLOG_VERSION 1
+#define EVLOG_RING 32
+#define EVLOG_MAX_PER_PKT 5
+
+typedef struct {
+    uint16_t t;
+    uint8_t  key_idx;
+    uint8_t  pressed;
+    uint8_t  travel;
+} evlog_event_t;
+
+static evlog_event_t evlog_ring[EVLOG_RING];
+static uint8_t       evlog_head;
+static uint8_t       evlog_count;
+static bool          evlog_active = false;
+
+static int8_t evlog_key_index(uint16_t keycode) {
+    switch (keycode) {
+        case KC_W:    return 0;
+        case KC_A:    return 1;
+        case KC_S:    return 2;
+        case KC_D:    return 3;
+        case KC_SPC:  return 4;
+        case KC_LSFT: return 5;
+        case KC_LCTL: return 6;
+        default:      return -1;
+    }
+}
+
+bool evlog_is_active(void) {
+    return evlog_active;
+}
+
+void evlog_toggle(void) {
+    evlog_active = !evlog_active;
+    if (!evlog_active) {
+        evlog_head  = 0;
+        evlog_count = 0;
+    }
+}
+
+void evlog_stop(void) {
+    evlog_active = false;
+}
+
+void evlog_record_event(uint16_t keycode, bool pressed, uint8_t row, uint8_t col) {
+    if (!evlog_active) return;
+    int8_t idx = evlog_key_index(keycode);
+    if (idx < 0) return;
+    if (evlog_count >= EVLOG_RING) return; // burst improbable: dropea el mas nuevo
+
+    evlog_event_t *e = &evlog_ring[(evlog_head + evlog_count) % EVLOG_RING];
+    e->t       = timer_read();
+    e->key_idx = (uint8_t)idx;
+    e->pressed = pressed ? 1 : 0;
+    e->travel  = analog_matrix_get_travel(row, col);
+    evlog_count++;
+}
+
+void evlog_task(void) {
+    if (!evlog_active || evlog_count == 0) return;
+
+    uint8_t pkt[TELEMETRY_EPSIZE] = {0};
+    pkt[0] = EVLOG_MAGIC;
+    pkt[1] = EVLOG_VERSION;
+
+    uint8_t n = evlog_count < EVLOG_MAX_PER_PKT ? evlog_count : EVLOG_MAX_PER_PKT;
+    pkt[2]    = n;
+    for (uint8_t i = 0; i < n; i++) {
+        evlog_event_t *e   = &evlog_ring[evlog_head];
+        pkt[3 + i * 5]     = e->t & 0xFF;
+        pkt[3 + i * 5 + 1] = e->t >> 8;
+        pkt[3 + i * 5 + 2] = e->key_idx;
+        pkt[3 + i * 5 + 3] = e->pressed;
+        pkt[3 + i * 5 + 4] = e->travel;
+        evlog_head = (evlog_head + 1) % EVLOG_RING;
+        evlog_count--;
+    }
 
     raw_hid_send(pkt, TELEMETRY_EPSIZE);
 }

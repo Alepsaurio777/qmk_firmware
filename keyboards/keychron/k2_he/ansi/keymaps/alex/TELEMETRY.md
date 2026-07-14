@@ -62,3 +62,41 @@ del hot path de escaneo; el scan no se toca.
    saltos; saltos = problema de calibración o de LUT.
 
 Registrar resultados en TEST-RESULTS.md del lab (mismo protocolo que Ornithe).
+
+## Logger de eventos (mistype-hunt)
+
+A diferencia del stream de travel (200 Hz, apagado en Gaming), el logger de
+eventos registra **solo los cambios de estado** (press/release) de las teclas
+de movimiento — W, A, S, D, espacio, LShift, **LCtrl** — con el travel del
+instante. Al ser event-driven cuesta ~cero cuando no pasa nada, así que **sí
+corre en Gaming**: el objetivo es cazar pulsaciones fantasma durante juego
+real, sobre todo en los modificadores mantenidos (LShift/LCtrl), que es el
+modo de fallo que Wooting documentó (Phantom Shift Detection).
+
+### Uso
+
+- **Activar/desactivar**: `Fn + U` (capa WIN_FN). Actívalo en Win, luego pasa
+  el interruptor a Gaming y juega — el logger sigue registrando en Gaming.
+- **Cliente**: `python tools/telemetry_client.py --events` (opcional
+  `--csv sesion.csv`). Imprime en vivo solo las **anomalías** (dobles y presses
+  marginales) y al salir (Ctrl+C) un resumen por tecla.
+- Se auto-apaga si Launcher habla (comparte endpoint).
+
+### Qué marca
+
+- **DOBLE**: un release→press del mismo key en menos de `DOUBLE_MS` (40 ms por
+  defecto) — re-disparo sospechoso / rebote.
+- **MARGINAL**: un press cuyo travel en el instante fue < `MARGINAL_TRAVEL`
+  (30 = ~0.5 mm) — actuación cerca del umbral, típica de un fantasma.
+
+### Cómo decidir
+
+Juega una sesión real y larga (para que entre el drift térmico). Si el resumen
+sale **limpio** (0 dobles, 0 marginales) → el firmware no tiene fantasmas y la
+histéresis adaptativa no hace falta. Si se **concentran en LShift/LCtrl** → es
+el caso de Wooting: implementar histéresis/dead-zone adaptativa cerca del
+reposo en esos modificadores. Decidir con los datos, no antes.
+
+Formato de paquete (32 B): `[0]=0xEC [1]=version [2]=N`, luego N×5 bytes
+`[t_lo, t_hi, key_idx, pressed, travel]`. key_idx: 0=W 1=A 2=S 3=D 4=SPC
+5=LSFT 6=LCTL.
