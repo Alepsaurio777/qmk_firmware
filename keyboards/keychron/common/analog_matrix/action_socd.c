@@ -84,7 +84,7 @@ void socd_action(void) {
                         uint8_t t1 = analog_matrix_get_travel(row1, col1);
                         uint8_t t2 = analog_matrix_get_travel(row2, col2);
 
-                        if (t1 > 230 && t2 > 230) {
+                        if (t1 > ANALOG_SOCD_BOTTOM_OUT_THRESHOLD && t2 > ANALOG_SOCD_BOTTOM_OUT_THRESHOLD) {
                             // Both bottomed out: register both, or keep the
                             // current winner only in SINGLE mode.
                             if (socd[i].type == SOCD_PRI_DEEPER_TRAVEL_SINGLE) {

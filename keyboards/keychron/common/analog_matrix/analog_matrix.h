@@ -175,6 +175,15 @@ static inline bool analog_matrix_is_gaming_mode(void) {
 #    define ANALOG_SOCD_DEEPER_HYSTERESIS 6
 #endif
 
+/* SOCD "ambas a fondo": si ambas teclas del par superan este travel, se
+ * registran las dos. Derivado del travel maximo (~94%) para no romperse si la
+ * escala cambia. Antes era 230 fijo, valido solo porque el maximo actual es
+ * (FULL_TRAVEL_UNIT+1)*TRAVEL_SCALE-1 = 245; esta formula da 230 hoy y se
+ * adapta si FULL_TRAVEL_UNIT o TRAVEL_SCALE cambian. */
+#ifndef ANALOG_SOCD_BOTTOM_OUT_THRESHOLD
+#    define ANALOG_SOCD_BOTTOM_OUT_THRESHOLD ((((FULL_TRAVEL_UNIT + 1) * TRAVEL_SCALE) - 1) * 94 / 100)
+#endif
+
 #ifndef ANALOG_DISABLE_OKMC_IN_GAMING_MODE
 #    define ANALOG_DISABLE_OKMC_IN_GAMING_MODE 0
 #endif
