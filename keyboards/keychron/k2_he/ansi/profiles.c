@@ -18,8 +18,10 @@
 #include "analog_matrix_type.h"
 
 uint8_t profile_gobal_mode[PROFILE_COUNT] = {
-    AKM_REGULAR,
-    AKM_RAPID,
+    AKM_REGULAR, // perfil 0 (Win/productividad): actuacion estatica
+    AKM_REGULAR, // perfil 1 (gaming): estatico por defecto; rapid trigger solo
+                 // en las teclas de movimiento marcadas en default_profiles[1]
+                 // (WASD, espacio, LShift, LCtrl). El resto no necesita RT.
     AKM_RAPID,
 };
 
@@ -48,13 +50,15 @@ const uint16_t PROGMEM default_profiles[PROFILE_COUNT][MATRIX_ROWS][MATRIX_COLS]
         0,                0,       0,       0,       0,       0,       0,       0,       0,       0,       0,                0,       0,       0,
         0,       0,       0,                                  0,                                  0,       0,       0,       0,       0,       0),
 
+    // Perfil gaming: 2 = AKM_RAPID por tecla. Solo movimiento: W, A, S, D,
+    // espacio, LShift, LCtrl. El resto hereda el global REGULAR (estatico).
     [1] = LAYOUT_ansi_84(
         0,       0,       0,       0,       0,       0,       0,       0,       0,       0,       0,       0,       0,       0,       0,       0,
         0,       0,       0,       0,       0,       0,       0,       0,       0,       0,       0,       0,       0,       0,                0,
-        0,       0,       0,       0,       0,       0,       0,       0,       0,       0,       0,       0,       0,       0,                0,
-        0,       0,       0,       0,       0,       0,       0,       0,       0,       0,       0,       0,                0,                0,
-        0,                0,       0,       0,       0,       0,       0,       0,       0,       0,       0,                0,       0,       0,
-        0,       0,       0,                                  0,                                  0,       0,       0,       0,       0,       0),
+        0,       0,       2,       0,       0,       0,       0,       0,       0,       0,       0,       0,       0,       0,                0,
+        0,       2,       2,       2,       0,       0,       0,       0,       0,       0,       0,       0,                0,                0,
+        2,                0,       0,       0,       0,       0,       0,       0,       0,       0,       0,                0,       0,       0,
+        2,       0,       0,                                  2,                                  0,       0,       0,       0,       0,       0),
 
     // Perfil 3 sin uso: era el gamepad Xbox de fabrica, eliminado.
     [2] = LAYOUT_ansi_84(
