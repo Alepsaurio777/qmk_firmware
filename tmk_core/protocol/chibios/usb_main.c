@@ -343,13 +343,16 @@ static bool usb_requests_hook_cb(USBDriver *usbp) {
     return false;
 }
 
-#if defined(USB_SOF_TIMING_PROBE)
-/* Cycle-counter timestamp of the last SOF, for scan<->poll phase measurement. */
+/* Cycle-counter timestamp of the last SOF. Needed by the scan<->poll phase
+ * MEASUREMENT (USB_SOF_TIMING_PROBE, debug) AND by the SOF-synchronized scan
+ * (ANALOG_SCAN_SOF_SYNC, production). Kept whenever either is active so the
+ * tournament build can have SOF sync without the debug instrumentation. */
+#if defined(USB_SOF_TIMING_PROBE) || ANALOG_SCAN_SOF_SYNC
 volatile uint32_t usb_sof_timing_last_cycles = 0;
 #endif
 
 static __attribute__((unused)) void usb_sof_cb(USBDriver *usbp) {
-#if defined(USB_SOF_TIMING_PROBE)
+#if defined(USB_SOF_TIMING_PROBE) || ANALOG_SCAN_SOF_SYNC
     usb_sof_timing_last_cycles = chSysGetRealtimeCounterX();
 #endif
 #if defined(USB_REPORT_INTERVAL_ENABLE)

@@ -58,6 +58,7 @@ typedef struct __attribute__((__packed__)){
     uint8_t c;
     uint16_t value;                 // 2 bytes, value
     uint16_t last_val;              // 2 bytes, last value
+    uint8_t  vel_ema;               // 1 byte, EMA of downward delta/scan (RAM-only)
 
     activity_point_t regular;       // 4 bytes, actuation point
     union {                         // 4 bytes
@@ -72,7 +73,7 @@ typedef struct __attribute__((__packed__)){
     };
     uint8_t rpd_trig_sen_rls;
 } analog_key_t;
-// size of analog_key_t is 16 bytes
+// size of analog_key_t is 17 bytes (was 16; +1 for vel_ema, RAM-only)
 
 typedef struct __attribute__((__packed__)) {
     uint8_t actn_pt;                        // unit: 0.1mm

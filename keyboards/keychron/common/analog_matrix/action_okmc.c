@@ -89,13 +89,26 @@ typedef struct {
     uint8_t field;
 } okmc_pending_t;
 
-#define OKMC_QUEUE_DEPTH 8
+#define OKMC_QUEUE_DEPTH 16
 static okmc_pending_t okmc_queue[OKMC_QUEUE_DEPTH];
 static uint8_t        okmc_q_head, okmc_q_count;
 static uint8_t        okmc_q_bit; // bit-group progress of the head entry
 
+static inline bool okmc_field_releases(uint8_t field) {
+    return field == OKMC_FIELD_RELEASE_ONLY || field == OKMC_FIELD_SHALLOW_DEACT;
+}
+
 static void okmc_enqueue(uint8_t okmc_idx, uint8_t field) {
-    if (okmc_q_count >= OKMC_QUEUE_DEPTH) return; // drop; queue depth covers any realistic burst
+    if (okmc_q_count >= OKMC_QUEUE_DEPTH) {
+        // Cola llena (burst improbable): descartar un PRESS es tolerable (tecla
+        // perdida), pero descartar un RELEASE dejaria la tecla/modificador
+        // pegado. Ejecutar el release inline garantiza que nunca quede pegado,
+        // a costa de un reporte sincrono solo en overflow.
+        if (okmc_field_releases(field)) {
+            release_okmc_keys(&profile_get_current()->okmc[okmc_idx]);
+        }
+        return;
+    }
     okmc_queue[(okmc_q_head + okmc_q_count) % OKMC_QUEUE_DEPTH] = (okmc_pending_t){okmc_idx, field};
     okmc_q_count++;
 }

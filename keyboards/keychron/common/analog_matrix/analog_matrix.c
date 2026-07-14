@@ -944,6 +944,18 @@ bool update_raw_value(uint8_t row, uint8_t col, uint16_t value) {
     k->value    = value;
     k->travel   = convert_to_travel(row, col, value);
 
+#if ANALOG_PREDICTIVE_ACTUATION_IN_GAMING_MODE
+    // EMA del delta descendente por scan (velocidad del dedo). Solo crece para
+    // movimiento hacia abajo (travel crece = golpe); decae (factor 1/2^N) en
+    // scans sin delta positivo. Sin division: shift derecho N bits. vel_ema
+    // solo lo consume la prediccion, asi que el feed se compila fuera cuando
+    // ANALOG_PREDICTIVE_ACTUATION_IN_GAMING_MODE == 0 (binario estable).
+    {
+        const uint8_t delta_down = (k->travel > k->last_travel) ? (uint8_t)(k->travel - k->last_travel) : 0;
+        k->vel_ema = (uint8_t)(k->vel_ema - (k->vel_ema >> ANALOG_PREDICTIVE_EMA_SHIFT) + (delta_down >> ANALOG_PREDICTIVE_EMA_SHIFT));
+    }
+#endif
+
     const uint8_t mode = analog_matrix_effective_mode(row, col, k->mode);
 
     if (k->travel == k->last_travel) return false;

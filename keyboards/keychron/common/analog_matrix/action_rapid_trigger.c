@@ -62,10 +62,22 @@ static inline bool rt_predictive_downstroke_ready(const analog_key_t *key, bool 
     if (key->travel <= key->last_travel) return false;
 
     const uint8_t delta = key->travel - key->last_travel;
+
+    // Freshness gate: el scan actual debe seguir moviendose hacia abajo (filtra
+    // scans donde el dedo ya freno pero vel_ema todavia no ha decaido).
     if (delta < ANALOG_PREDICTIVE_ACTUATION_MIN_DELTA) return false;
+
+    // Velocity gate (puerta anti-typo): vel_ema es la velocidad sostenida del
+    // dedo, prefiltrada por EMA en update_raw_value. Debajo del umbral, NO se
+    // predice. Reemplaza el offset fijo ADVANCE (TRAVEL_SCALE = 0.1 mm):
+    //   antes:   travel + ADVANCE_FIJO         >= target  (igual rapido/lento)
+    //   ahora:   travel + vel_ema * LOOKAHEAD  >= target  (escala con velocidad)
+    if (key->vel_ema < ANALOG_PREDICTIVE_MIN_VELOCITY) return false;
+
     if (key->travel < MIN_ACTUATION) return false;
 
-    return (uint16_t)key->travel + ANALOG_PREDICTIVE_ACTUATION_ADVANCE >= target;
+    const uint16_t projected = (uint16_t)key->travel + (uint16_t)key->vel_ema * ANALOG_PREDICTIVE_LOOKAHEAD;
+    return projected >= target;
 }
 
 static inline bool rt_predictive_press_ready(const analog_key_t *key, bool predictive_rt) {

@@ -69,13 +69,10 @@
  * USB Start-of-Frame so the scan (and the report it produces) lands just
  * before the next host poll. Turns the free-running scan<->poll phase lottery
  * (up to ~1 frame of extra latency, random per keystroke) into a constant.
- * Requires USB_SOF_TIMING_PROBE for the SOF timestamp. */
+ * The SOF timestamp (usb_sof_timing_last_cycles) is provided by usb_main.c
+ * whenever this or USB_SOF_TIMING_PROBE is active, so no probe is required. */
 #ifndef ANALOG_SCAN_SOF_SYNC
 #    define ANALOG_SCAN_SOF_SYNC 0
-#endif
-
-#if ANALOG_SCAN_SOF_SYNC && !defined(USB_SOF_TIMING_PROBE)
-#    error "ANALOG_SCAN_SOF_SYNC requires USB_SOF_TIMING_PROBE (SOF timestamp source)"
 #endif
 
 /* Scan start offset after SOF. Keep small: the tail of the frame must fit the

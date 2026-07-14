@@ -311,6 +311,42 @@ static inline bool analog_matrix_is_gaming_mode(void) {
 #    define ANALOG_PREDICTIVE_ACTUATION_MIN_DELTA TRAVEL_SCALE
 #endif
 
+// ----- Predictive RT con velocidad real (rt_predictive_downstroke_ready) -----
+// vel_ema lleva un EMA del delta descendente por scan (unidades de TRAVEL_SCALE
+// = 0.1 mm/scan, scan anclado a SOF ~1 kHz). El EMA suaviza picos de ruido de
+// un solo scan sin perder la pendiente de un W-Tap sostenido. La "puerta"
+// MIN_VELOCITY descarta roces/escritura lentos que no deben disparar la
+// prediccion.
+//
+// Tunables (override en config.h del keymap). Defaults calibrados para
+// reaccion ~1 scan ante un W-Tap agresivo (delta ~0.3 mm/scan) y no disparar
+// ante escritura lenta (delta ~0.1 mm/scan):
+//
+//   ANALOG_PREDICTIVE_EMA_SHIFT     N en
+//                                    vel_ema = vel_ema - (vel_ema>>N) + (delta>>N).
+//                                    Default 2 = factor 1/4. Buildup en ~4 scans.
+//                                    Mayor N = mas smoothing y buildup mas lento.
+//   ANALOG_PREDICTIVE_MIN_VELOCITY  EMA minimo para considerar el golpe "rapido".
+//                                    Default 4: un golpe rapido (delta 20) lo
+//                                    supera en 1 scan (vel_ema = 5); una prensa
+//                                    lenta sostenida (delta 6) lo alcanza tras
+//                                    ~3 scans (eso es escritura, no typo).
+//   ANALOG_PREDICTIVE_LOOKAHEAD     Scans proyectados hacia adelante en
+//                                    projected = travel + vel_ema * LOOKAHEAD.
+//                                    Default 2. Lookahead 1 = prediccion modesta
+//                                    (~0.1 mm); 3 = agresiva (~0.3 mm para vel 20).
+#ifndef ANALOG_PREDICTIVE_EMA_SHIFT
+#    define ANALOG_PREDICTIVE_EMA_SHIFT 2
+#endif
+
+#ifndef ANALOG_PREDICTIVE_MIN_VELOCITY
+#    define ANALOG_PREDICTIVE_MIN_VELOCITY 4
+#endif
+
+#ifndef ANALOG_PREDICTIVE_LOOKAHEAD
+#    define ANALOG_PREDICTIVE_LOOKAHEAD 2
+#endif
+
 #define ANALOG_COORD_DISABLED(row, col) ((row) == 0xFF && (col) == 0xFF)
 #define ANALOG_COORD_IN_MATRIX(row, col) ((row) < MATRIX_ROWS && (col) < MATRIX_COLS)
 #define ANALOG_COORD_VALID(row, col) (ANALOG_COORD_DISABLED(row, col) || ANALOG_COORD_IN_MATRIX(row, col))

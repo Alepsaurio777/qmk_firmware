@@ -1,0 +1,84 @@
+# Desarrollo: binario de torneo vs experimental
+
+Dos binarios del mismo teclado, misma lógica, distinto perfil de riesgo.
+
+| Keymap | Binario | Para qué |
+|---|---|---|
+| `alex` | `keychron_k2_he_ansi_alex.bin` | **Torneo.** Mínimo, probado, sin instrumentación de debug ni features especulativas. Es el que flasheas para jugar en serio. |
+| `alex_lab` | `keychron_k2_he_ansi_alex_lab.bin` | **Laboratorio.** Todo encendido — RT predictivo, probe de timing. Aquí se rompen cosas. |
+
+## Cómo se relacionan (importante)
+
+`alex_lab` **no duplica ni una línea de lógica**. Su estructura:
+- `keymap.c` → `#include "../alex/keymap.c"` (misma lógica de teclado).
+- `config.h` → `#include "../alex/config.h"` + 2 `#define` que encienden lo experimental.
+- `rules.mk` → reutiliza `../alex/telemetry.c`.
+
+Consecuencia: **cualquier cambio de lógica se hace en `alex`** y `alex_lab` lo hereda automáticamente. Nunca editas `alex_lab` salvo para encender/apagar un flag experimental. No hay drift posible entre los dos.
+
+## La regla de oro
+
+Todo código experimental que viva en `common/` (el core analógico compartido) **debe ir detrás de un `#if FLAG`**, apagado por defecto. Así el binario de torneo lo compila **fuera** — no basta con apagarlo en runtime, porque el código seguiría ocupando flash y ciclos.
+
+Mal (código vivo aunque el flag esté off):
+```c
+k->vel_ema = ...;   // corre siempre, cuesta en el hot path
+```
+Bien (se compila fuera cuando el flag está off):
+```c
+#if ANALOG_PREDICTIVE_ACTUATION_IN_GAMING_MODE
+    k->vel_ema = ...;
+#endif
+```
+
+La prueba de que quedó bien aislado: el **delta de tamaño** entre los dos `.bin`. Si `alex` no creció al añadir la feature, está fuera de verdad.
+
+## Cómo añadir una feature experimental nueva
+
+1. Escribe el código en `common/` detrás de `#if MI_FLAG`.
+2. Dale default 0 en `analog_matrix.h` con `#ifndef` (para que `alex` lo deje apagado sin tocar nada):
+   ```c
+   #ifndef MI_FLAG
+   #    define MI_FLAG 0
+   #endif
+   ```
+   No lo fuerces en `k2_he/config.h` — deja que el default lo apague y que el keymap lo encienda.
+3. Enciéndelo en `alex_lab/config.h`: `#define MI_FLAG 1`.
+4. Compila **ambos** y mira el delta de tamaño = tu código aislado.
+5. Prueba en `alex_lab`, mide con telemetría.
+6. **Promoción a torneo** (solo si pasa los criterios de abajo): mueve el `#define MI_FLAG 1` a `k2_he/config.h` (lo heredan ambos) o al `config.h` de `alex`.
+
+## Build
+
+```bash
+# Torneo
+qmk compile -kb keychron/k2_he/ansi -km alex
+# Laboratorio
+qmk compile -kb keychron/k2_he/ansi -km alex_lab
+```
+(vía MSYS2 MinGW64; `qmk` no está en el PATH de PowerShell).
+
+## Inventario de flags
+
+| Flag | `alex` | `alex_lab` | Qué hace |
+|---|---|---|---|
+| `ANALOG_SCAN_PIPELINE` | 1 | 1 | Procesa columna previa durante el settle (barrido más corto) |
+| `ANALOG_SCAN_SOF_SYNC` | 1 | 1 | Ancla el barrido al SOF USB (elimina jitter de fase) |
+| `KEYCHRON_FIXED_REPORT_RATE` | on | on | 1 kHz fijo, ignora EEPROM |
+| `ANALOG_BOTTOM_OUT_LEARN` | 1 | 1 | Aprende bottom-out por tecla, solo-crece |
+| `ANALOG_SOCD_DEEPER_HYSTERESIS` | 6 | 6 | Histéresis del Rappy Snappy (anti-chatter A/D) |
+| telemetría de travel | sí | sí | Stream Fn+Y (diagnóstico) |
+| `USB_SOF_TIMING_PROBE` | **no** | **sí** | Instrumentación de duración/fase del barrido |
+| `ANALOG_PREDICTIVE_ACTUATION_IN_GAMING_MODE` | **0** | **1** | RT predictivo por velocidad (especulativo) |
+
+El timestamp del SOF lo provee `usb_main.c` mientras `ANALOG_SCAN_SOF_SYNC` **o** `USB_SOF_TIMING_PROBE` estén activos, así que el torneo tiene sync sin arrastrar el probe.
+
+## Criterio de promoción lab → torneo
+
+Una feature graduá de `alex_lab` a `alex` solo si:
+1. **Validada con datos**, no con sensación (telemetría, no "se siente mejor").
+2. **Sin regresión** de latencia ni de jitter de fase (medir el probe antes/después).
+3. **Sin riesgo de input fantasma** — nada que sintetice o adelante pulsaciones de forma que un anticheat o tú mismo no puedan distinguir de un error.
+4. **Para MC 1.8.9**: beneficio real por encima del tick de servidor de 50 ms. Ganar sub-milisegundos no cuenta.
+
+Lo que no pase los 4 se queda en `alex_lab` como juguete, no como firmware de torneo.

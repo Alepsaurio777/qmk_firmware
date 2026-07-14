@@ -1,8 +1,9 @@
 #pragma once
 
-// Fase 3 (instrumentacion): timestamp de SOF + duracion/fase del barrido,
-// exportados en el paquete v2 de telemetria. Quitar cuando la fase 3 cierre.
-#define USB_SOF_TIMING_PROBE
+// Binario ESTABLE / torneo: SOF-sync + pipeline + telemetria de travel, SIN el
+// probe de timing (debug) ni prediccion. El keymap alex_lab hereda este config
+// y enciende esas dos cosas para experimentar. El timestamp de SOF lo provee
+// usb_main.c mientras SOF_SYNC este activo, asi que el sync no necesita probe.
 
 // Fase 3 (parte 2a): procesar la columna previa durante el settle de la
 // siguiente. Medido: 1041-1052 us sin pipeline -> 878-892 us con pipeline.

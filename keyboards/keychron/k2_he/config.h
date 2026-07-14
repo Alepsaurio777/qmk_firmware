@@ -150,9 +150,10 @@
 #define ANALOG_DISABLE_PROFILE_COMBO_IN_GAMING_MODE 1
 #define ANALOG_CONTINUOUS_RAPID_TRIGGER_IN_GAMING_MODE 0
 #define ANALOG_CONTINUOUS_RT_REPRESS_MAX_TRAVEL 240
-#define ANALOG_PREDICTIVE_ACTUATION_IN_GAMING_MODE 0
-#define ANALOG_PREDICTIVE_REGULAR_IN_GAMING_MODE 0
-#define ANALOG_PREDICTIVE_REGULAR_FORCE_MODE_IN_GAMING 0
+// Toggles de prediccion controlados por keymap (alex = off, alex_lab = on).
+// No se fuerzan aqui: analog_matrix.h los deja en 0 por defecto y el config.h
+// del keymap los sube a 1 si aplica. Las coordenadas/parametros de abajo son
+// compartidos e inertes cuando la prediccion esta apagada.
 #define ANALOG_PREDICTIVE_ACTUATION_ADVANCE TRAVEL_SCALE
 #define ANALOG_PREDICTIVE_ACTUATION_MIN_DELTA TRAVEL_SCALE
 #define ANALOG_PREDICTIVE_RT_KEY3_ROW 2 // W
