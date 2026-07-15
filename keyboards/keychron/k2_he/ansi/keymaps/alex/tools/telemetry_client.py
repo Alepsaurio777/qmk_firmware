@@ -100,8 +100,22 @@ def run_events(dev, csv_path=None):
 
     last = {}  # key_idx -> (t, pressed) del ultimo evento
     counts = {k: {"press": 0, "release": 0, "double": 0, "marginal": 0} for k in EVLOG_KEYS}
+    t_status = 0.0
+    print("Pulsa WASD/espacio/LShift/LCtrl: el contador de abajo debe subir. Si NO sube,")
+    print("el logger no esta corriendo (binario viejo?) — no es que este limpio.\n")
     try:
         while True:
+            # Contador en vivo: prueba visible de que SI esta midiendo. Sin esto,
+            # "no pasa nada" es indistinguible de "no funciona".
+            now_s = time.time()
+            if now_s - t_status > 0.4:
+                t_status = now_s
+                tot = sum(c["press"] + c["release"] for c in counts.values())
+                dob = sum(c["double"] for c in counts.values())
+                mar = sum(c["marginal"] for c in counts.values())
+                print(f"\r  eventos: {tot:6d} | dobles: {dob:4d} | marginales: {mar:4d}",
+                      end="", flush=True)
+
             pkt = dev.read(32, timeout_ms=1000)
             if not pkt:
                 continue
@@ -130,14 +144,15 @@ def run_events(dev, csv_path=None):
                 evt = "PRESS  " if pressed else "release"
                 line = f"[{t:5d}ms] {name:4s} {evt} travel={travel:3d}"
                 if flag:
-                    line += f"   <<< {flag}"
-                    print(line)  # solo imprime anomalias en vivo (menos ruido)
+                    # \n para no pisar la linea del contador en vivo
+                    print(f"\n{line}   <<< {flag}")
                 if csv_file:
                     csv_file.write(f"{t},{name},{'press' if pressed else 'release'},{travel},{flag}\n")
     except KeyboardInterrupt:
         diag(dev, DIAG_EVLOG_OFF)
         if csv_file:
             csv_file.close()
+        print()  # cerrar la linea del contador en vivo
 
         total_events = sum(c["press"] + c["release"] for c in counts.values())
 
