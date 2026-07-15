@@ -13,6 +13,7 @@ es cazar fantasmas jugando de verdad).
 
 import argparse
 import collections
+import statistics
 import sys
 import time
 
@@ -26,9 +27,19 @@ EVLOG_MAGIC = 0xEC
 KEYS = ["W", "A", "S", "D", "SPC", "LSFT"]
 EVLOG_KEYS = ["W", "A", "S", "D", "SPC", "LSFT", "LCTL"]
 
-# Umbrales de deteccion de fantasmas (ajustables):
-DOUBLE_MS = 40       # release->press del mismo key en < esto = doble sospechoso
-MARGINAL_TRAVEL = 30  # press con travel < esto (~0.5mm) = actuacion marginal
+# Deteccion de fantasmas.
+#
+# La UNICA firma que un fantasma no puede falsear es el TIEMPO. Un rebote de
+# resorte ocurre en el tiempo de asentamiento del stem (~2-5 ms); un re-press
+# humano deliberado no baja de ~20-25 ms. Ese hueco es el detector.
+#
+# (Historico: antes se marcaba "MARGINAL = press con travel < 30", pensando que
+# un press superficial era sospechoso. Era ERRONEO: con rapid trigger el press
+# dispara en valle+sensibilidad, y con una actuacion configurada a 0.4 mm eso
+# son ~24 unidades — o sea marcaba el 100% de los presses normales. Medía la
+# configuracion del usuario, no fantasmas. Eliminado.)
+PHANTOM_MS = 10  # release->press en < esto = imposible a proposito -> fantasma
+FAST_MS = 20     # 10-20 ms: humanamente posible pero raro; se reporta como info
 
 
 def find_device():
@@ -92,14 +103,14 @@ def run_events(dev, csv_path=None):
     diag(dev, DIAG_EVLOG_ON)
     print("Mistype-hunt ACTIVO (el logger se armo por HID; no hace falta ninguna tecla).")
     print("Funciona en Gaming: pasa el interruptor y juega. Ctrl+C para salir.")
-    print(f"Marca DOBLE si release->press del mismo key en <{DOUBLE_MS} ms; "
-          f"MARGINAL si press con travel <{MARGINAL_TRAVEL} (~0.5mm).\n")
+    print(f"FANTASMA = release->press del mismo key en <{PHANTOM_MS} ms (imposible a proposito:")
+    print(f"un rebote de resorte vive en 2-5 ms). {PHANTOM_MS}-{FAST_MS} ms se reporta como info.\n")
     csv_file = open(csv_path, "w", encoding="utf-8") if csv_path else None
     if csv_file:
         csv_file.write("t_ms,key,event,travel,flag\n")
 
     last = {}  # key_idx -> (t, pressed) del ultimo evento
-    counts = {k: {"press": 0, "release": 0, "double": 0, "marginal": 0} for k in EVLOG_KEYS}
+    counts = {k: {"press": 0, "release": 0, "phantom": 0, "fast": 0, "trav": []} for k in EVLOG_KEYS}
     t_status = 0.0
     print("Pulsa WASD/espacio/LShift/LCtrl: el contador de abajo debe subir. Si NO sube,")
     print("el logger no esta corriendo (binario viejo?) — no es que este limpio.\n")
@@ -111,9 +122,9 @@ def run_events(dev, csv_path=None):
             if now_s - t_status > 0.4:
                 t_status = now_s
                 tot = sum(c["press"] + c["release"] for c in counts.values())
-                dob = sum(c["double"] for c in counts.values())
-                mar = sum(c["marginal"] for c in counts.values())
-                print(f"\r  eventos: {tot:6d} | dobles: {dob:4d} | marginales: {mar:4d}",
+                ph = sum(c["phantom"] for c in counts.values())
+                fa = sum(c["fast"] for c in counts.values())
+                print(f"\r  eventos: {tot:6d} | FANTASMAS: {ph:4d} | rapidos(info): {fa:4d}",
                       end="", flush=True)
 
             pkt = dev.read(32, timeout_ms=1000)
@@ -129,15 +140,17 @@ def run_events(dev, csv_path=None):
                 flag = ""
                 if pressed:
                     counts[name]["press"] += 1
-                    if travel < MARGINAL_TRAVEL:
-                        flag = "MARGINAL"
-                        counts[name]["marginal"] += 1
+                    counts[name]["trav"].append(travel)
                     if key_idx in last:
                         lt, lp = last[key_idx]
                         dt = (t - lt) & 0xFFFF
-                        if lp == 0 and dt < DOUBLE_MS:
-                            flag = (flag + " DOBLE").strip()
-                            counts[name]["double"] += 1
+                        if lp == 0:  # el evento previo fue un release
+                            if dt < PHANTOM_MS:
+                                flag = f"FANTASMA ({dt}ms: imposible a proposito)"
+                                counts[name]["phantom"] += 1
+                            elif dt < FAST_MS:
+                                flag = f"rapido ({dt}ms)"
+                                counts[name]["fast"] += 1
                 else:
                     counts[name]["release"] += 1
                 last[key_idx] = (t, pressed)
@@ -169,20 +182,28 @@ def run_events(dev, csv_path=None):
             return
 
         print("\nResumen por tecla:")
-        print(f"  {'tecla':5s} {'press':>6s} {'release':>8s} {'DOBLES':>7s} {'MARGINAL':>9s}")
+        print(f"  {'tecla':5s} {'press':>6s} {'release':>8s} {'FANTASMA':>9s} {'rapido':>7s}   actuacion")
         for name in EVLOG_KEYS:
             c = counts[name]
-            print(f"  {name:5s} {c['press']:6d} {c['release']:8d} {c['double']:7d} {c['marginal']:9d}")
+            tv = c["trav"]
+            act = f"travel~{int(statistics.median(tv))} ({statistics.median(tv)/60.0:.2f}mm)" if tv else "-"
+            print(f"  {name:5s} {c['press']:6d} {c['release']:8d} {c['phantom']:9d} {c['fast']:7d}   {act}")
         if csv_path:
             print(f"\nSesion guardada en {csv_path}")
 
-        total_ph = sum(c["double"] + c["marginal"] for c in counts.values())
+        total_ph = sum(c["phantom"] for c in counts.values())
+        total_fa = sum(c["fast"] for c in counts.values())
+        print(f"\n(La columna 'actuacion' es informativa: revela tu punto de actuacion real,")
+        print(" el que tengas puesto en Launcher. No es una anomalia.)")
         if total_ph == 0:
-            print(f"\nLimpio: {total_events} eventos registrados, 0 dobles, 0 presses marginales.")
-            print("Firmware sin fantasmas en esta sesion.")
+            print(f"\nLIMPIO: {total_events} eventos, 0 fantasmas (0 re-press bajo {PHANTOM_MS} ms).")
+            print("Un rebote de resorte viviria en 2-5 ms; no hay ninguno. Tus switches no")
+            print(f"rebotan y la señal no genera falsos disparos. ({total_fa} eventos rapidos de")
+            print(f"{PHANTOM_MS}-{FAST_MS} ms = tapeo humano rapido, normal.)")
         else:
-            print(f"\n{total_ph} eventos sospechosos de {total_events} registrados. Si se concentran "
-                  "en LSFT/LCTL -> candidato a histeresis adaptativa (fix Wooting). Revisa el CSV.")
+            print(f"\n{total_ph} FANTASMAS de {total_events} eventos: re-press bajo {PHANTOM_MS} ms,")
+            print("imposible a proposito. Si se concentran en LSFT/LCTL -> histeresis adaptativa")
+            print("cerca del reposo (fix Wooting). Revisa el CSV para el contexto.")
 
 
 def run_console(dev):
