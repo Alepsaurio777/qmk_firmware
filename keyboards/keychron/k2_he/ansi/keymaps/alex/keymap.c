@@ -20,11 +20,6 @@
 #include "profile.h"
 #include "telemetry.h"
 
-enum custom_keycodes {
-    TELEM_TG = QK_USER_0, // toggle telemetria de profundidad (solo Win/productividad)
-    EVLOG_TG,             // toggle logger de eventos (mistype-hunt; corre en Gaming)
-};
-
 enum layers {
     GAMING_BASE,
     GAMING_FN,
@@ -67,7 +62,7 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
     [WIN_FN] = LAYOUT_ansi_84(
         _______,  KC_BRID,  KC_BRIU,  KC_TASK,  KC_FILE,  UG_VALD,  UG_VALU,  KC_MPRV,  KC_MPLY,  KC_MNXT,  KC_MUTE,  KC_VOLD,  KC_VOLU,  _______,  _______,  UG_TOGG,
         _______,  BT_HST1,  BT_HST2,  BT_HST3,  P2P4G,    _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,            _______,
-        UG_TOGG,  UG_NEXT,  UG_VALU,  UG_HUEU,  UG_SATU,  UG_SPDU,  TELEM_TG, EVLOG_TG, _______,  _______,  _______,  _______,  _______,  _______,            _______,
+        UG_TOGG,  UG_NEXT,  UG_VALU,  UG_HUEU,  UG_SATU,  UG_SPDU,  _______,  _______,  _______,  _______,  _______,  _______,  _______,  _______,            _______,
         _______,  UG_PREV,  UG_VALD,  UG_HUED,  UG_SATD,  UG_SPDD,  _______,  _______,  _______,  _______,  _______,  _______,            _______,            _______,
         _______,            PROF1,    PROF2,    PROF3,    _______,  BAT_LVL,  _______,  _______,  _______,  _______,  _______,            _______,  _______,  _______,
         _______,  _______,  _______,                                _______,                                _______,  _______,  _______,  _______,  _______,  _______)
@@ -127,18 +122,10 @@ void housekeeping_task_user(void) {
 }
 
 bool process_record_user(uint16_t keycode, keyrecord_t *record) {
-    // Registrar el evento ANTES de cualquier lockdown, para cazar tambien
-    // fantasmas de teclas de movimiento en Gaming. No-op si el logger esta off.
+    // Diagnostico (temporal): registrar el evento ANTES de cualquier lockdown,
+    // para cazar tambien fantasmas de teclas de movimiento en Gaming. No-op si
+    // el logger esta off. Se arranca por comando HID, no por keycode.
     evlog_record_event(keycode, record->event.pressed, record->event.key.row, record->event.key.col);
-
-    if (keycode == TELEM_TG) {
-        if (record->event.pressed) telemetry_toggle();
-        return false;
-    }
-    if (keycode == EVLOG_TG) {
-        if (record->event.pressed) evlog_toggle();
-        return false;
-    }
 
     // Si estamos en modo Gaming (Interruptor fisico en Mac = Capas 0 y 1)
     if (analog_matrix_is_gaming_mode()) {

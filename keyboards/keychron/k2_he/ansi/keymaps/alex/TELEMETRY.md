@@ -20,20 +20,20 @@ LShift**. Sirve para tres cosas concretas:
 
 ## Cómo se usa
 
-- **Activar/desactivar**: `Fn + Y` (capa WIN_FN). Solo funciona con el
-  interruptor en Win/productividad.
+- **Activar/desactivar**: automático — el cliente lo arma por comando HID al
+  arrancar y lo apaga al salir. Solo funciona con el interruptor en
+  Win/productividad (en Gaming el stream compite con el input y se corta solo).
 - **En Gaming no existe**: el toggle se ignora y, si el stream estaba activo y
   mueves el interruptor a Gaming, se corta solo. Razón: el streaming compite
   por CPU y por el endpoint USB con el input — jamás debe convivir con PvP.
 - **Cliente**: `tools/telemetry_client.py` (requiere `pip install hidapi`).
   Grafica el travel en vivo y calcula ruido pico-a-pico por tecla.
 - **VIA/Launcher comparten endpoint con el stream.** Si Launcher intenta
-  conectar con el stream activo, sus respuestas quedan pisadas por paquetes de
-  telemetría y muestra "not-connect". Desde el 13-jul el firmware apaga la
-  telemetría automáticamente en cuanto llega cualquier comando de
-  configuración (`via_command_kb`); aun así, apágala con `Fn+Y` al terminar
-  una sesión de medición — el cliente al cerrarse NO apaga el stream del
-  teclado.
+  conectar con el stream activo, sus respuestas quedan pisadas y muestra
+  "not-connect". El firmware apaga los diagnósticos automáticamente en cuanto
+  llega cualquier comando de configuración que no sea el nuestro (`0xEE`), y
+  el cliente los apaga al salir. Aun así, no dejes Launcher abierto durante
+  una medición.
 
 ## Formato de paquete (32 bytes)
 
@@ -75,12 +75,18 @@ modo de fallo que Wooting documentó (Phantom Shift Detection).
 
 ### Uso
 
-- **Activar/desactivar**: `Fn + U` (capa WIN_FN). Actívalo en Win, luego pasa
-  el interruptor a Gaming y juega — el logger sigue registrando en Gaming.
+- **No hay tecla que pulsar.** El cliente arma el logger solo, por comando HID
+  (`0xEE`). Arráncalo, pasa el interruptor a Gaming y juega — el logger sigue
+  registrando en Gaming.
 - **Cliente**: `python tools/telemetry_client.py --events` (opcional
   `--csv sesion.csv`). Imprime en vivo solo las **anomalías** (dobles y presses
   marginales) y al salir (Ctrl+C) un resumen por tecla.
 - Se auto-apaga si Launcher habla (comparte endpoint).
+
+> Antes esto colgaba de un keycode (Fn+U). Se quitó: el keymap de VIA vive en
+> **EEPROM** y puede dejar cualquier tecla desasignada, así que el toggle era
+> inalcanzable tras flashear sin resetear el keymap. Un comando HID siempre
+> llega, y de paso el diagnóstico queda desacoplado del keymap.
 
 ### Qué marca
 

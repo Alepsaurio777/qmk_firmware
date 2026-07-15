@@ -41,32 +41,6 @@ static bool     telemetry_active = false;
 static uint16_t last_send        = 0;
 static uint8_t  seq              = 0;
 
-bool telemetry_is_active(void) {
-    return telemetry_active;
-}
-
-void telemetry_toggle(void) {
-    // Nunca en Gaming: el streaming compite por CPU/USB con el input.
-    if (analog_matrix_is_gaming_mode()) return;
-    telemetry_active = !telemetry_active;
-    if (telemetry_active) last_send = timer_read();
-}
-
-void telemetry_stop(void) {
-    telemetry_active = false;
-}
-
-// El stream comparte endpoint con VIA/Launcher: si un cliente de configuracion
-// empieza a hablar, apagar la telemetria para no pisarle las respuestas
-// (aprendido el 13-jul: el stream activo hacia fallar el handshake de Launcher).
-void kc_raw_hid_rx_user(uint8_t src, uint8_t *data, uint8_t length) {
-    (void)src;
-    (void)data;
-    (void)length;
-    telemetry_stop();
-    evlog_stop();
-}
-
 void telemetry_task(void) {
     if (!telemetry_active) return;
     // Corte automatico si el interruptor fisico pasa a Gaming a mitad de stream.
@@ -149,22 +123,6 @@ static int8_t evlog_key_index(uint16_t keycode) {
     }
 }
 
-bool evlog_is_active(void) {
-    return evlog_active;
-}
-
-void evlog_toggle(void) {
-    evlog_active = !evlog_active;
-    if (!evlog_active) {
-        evlog_head  = 0;
-        evlog_count = 0;
-    }
-}
-
-void evlog_stop(void) {
-    evlog_active = false;
-}
-
 void evlog_record_event(uint16_t keycode, bool pressed, uint8_t row, uint8_t col) {
     if (!evlog_active) return;
     int8_t idx = evlog_key_index(keycode);
@@ -204,4 +162,53 @@ void evlog_task(void) {
     }
 
     raw_hid_send(pkt, TELEMETRY_EPSIZE);
+}
+
+// ===========================================================================
+// Control por Raw HID (unico punto de entrada — no hay keycodes)
+// ===========================================================================
+// El cliente arranca/para los diagnosticos con el comando 0xEE. Se eligio un
+// comando propio en vez de un keycode porque el keymap de VIA vive en EEPROM y
+// puede dejar cualquier tecla desasignada; un comando HID siempre llega.
+//
+// Cualquier OTRO comando entrante significa que un cliente de configuracion
+// (Launcher) esta hablando: apagamos los diagnosticos para no pisarle las
+// respuestas — comparten endpoint.
+#define DIAG_CMD 0xEE
+enum {
+    DIAG_EVLOG_OFF = 0x00,
+    DIAG_EVLOG_ON  = 0x01,
+    DIAG_TELEM_OFF = 0x10,
+    DIAG_TELEM_ON  = 0x11,
+};
+
+void kc_raw_hid_rx_user(uint8_t src, uint8_t *data, uint8_t length) {
+    (void)src;
+
+    if (length >= 2 && data[0] == DIAG_CMD) {
+        switch (data[1]) {
+            case DIAG_EVLOG_ON:
+                evlog_head   = 0;
+                evlog_count  = 0;
+                evlog_active = true;
+                break;
+            case DIAG_EVLOG_OFF:
+                evlog_active = false;
+                break;
+            case DIAG_TELEM_ON:
+                // El stream de travel compite con el input: nunca en Gaming.
+                if (!analog_matrix_is_gaming_mode()) {
+                    last_send        = timer_read();
+                    telemetry_active = true;
+                }
+                break;
+            case DIAG_TELEM_OFF:
+                telemetry_active = false;
+                break;
+        }
+        return; // es nuestro comando: no apagar nada
+    }
+
+    telemetry_active = false;
+    evlog_active     = false;
 }
