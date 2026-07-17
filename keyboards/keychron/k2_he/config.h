@@ -92,9 +92,10 @@
 #define FN_KEY_2 MO(3)
 #define FN_BL_TRIG_KEY KC_END
 
-// Polling rate fijado en compile-time: div 0 = 8 kHz en el bus high-speed.
-// KEYCHRON_FIXED_REPORT_RATE ignora la EEPROM y bloquea cambios en runtime
-// (HID de Launcher y combos Fn), asi el rate es deterministico en cada boot.
+// Polling rate fijado en compile-time: div 0 = un reporte por frame USB. En
+// este STM32F401 el USB es Full-Speed, asi que el techo real es 1 kHz (no 8 kHz,
+// que exigiria High-Speed). KEYCHRON_FIXED_REPORT_RATE ignora la EEPROM y bloquea
+// cambios en runtime (HID de Launcher y combos Fn): rate deterministico por boot.
 #define KEYCHRON_DEFAULT_REPORT_RATE_DIV 0
 #define KEYCHRON_FIXED_REPORT_RATE
 
@@ -137,7 +138,13 @@
 // en el scan). Solo-crece: el rango dinamico nunca puede degradarse solo.
 // Complementa la calibracion de reposo de arranque (CALIB_ZERO_TRAVEL_POWER_ON)
 // que ya compensa drift termico en cada boot.
-#define ANALOG_BOTTOM_OUT_LEARN 1
+// Default overridable por keymap: alex (torneo) lo APAGA — el drift se descarto
+// con datos (sesion de 24k eventos, actuacion mediana plana en 25.0) y un
+// aprendedor adaptativo contradice el objetivo "nada cambia durante la partida".
+// alex_lab lo mantiene en 1 para experimentar con drift termico/outliers.
+#ifndef ANALOG_BOTTOM_OUT_LEARN
+#    define ANALOG_BOTTOM_OUT_LEARN 1
+#endif
 
 // In Gaming layers, ignore Launcher advanced mappings that can synthesize or
 // latch input and fall back to the key's base profile mode.

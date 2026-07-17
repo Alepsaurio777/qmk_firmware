@@ -14,3 +14,8 @@
 // y su consumo en la FSM del rapid trigger. Especulativo (dispara antes del
 // cruce fisico) — a evaluar con la telemetria antes de considerarlo estable.
 #define ANALOG_PREDICTIVE_ACTUATION_IN_GAMING_MODE 1
+
+// Re-enciende el aprendizaje de bottom-out (alex lo apaga para torneo). Aqui es
+// donde se prueban sesiones termicas largas y el manejo de outliers del learner.
+#undef ANALOG_BOTTOM_OUT_LEARN
+#define ANALOG_BOTTOM_OUT_LEARN 1

@@ -75,6 +75,7 @@ static inline bool is_layer_switch_keycode(uint16_t keycode) {
            IS_QK_TO(keycode) ||
            IS_QK_MOMENTARY(keycode) ||
            IS_QK_DEF_LAYER(keycode) ||
+           IS_QK_PERSISTENT_DEF_LAYER(keycode) || // PDF(): fija la capa default y la persiste a EEPROM -> escape permanente de Gaming
            IS_QK_TOGGLE_LAYER(keycode) ||
            IS_QK_ONE_SHOT_LAYER(keycode) ||
            IS_QK_LAYER_TAP_TOGGLE(keycode);

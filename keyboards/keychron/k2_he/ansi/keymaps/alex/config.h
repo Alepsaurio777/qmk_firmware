@@ -16,6 +16,15 @@
 // quedar estable ~895-905 us en vez de uniforme 0-1000.
 #define ANALOG_SCAN_SOF_SYNC 1
 
+// Torneo: aprendizaje adaptativo de bottom-out APAGADO. El drift termico se
+// descarto empiricamente (sesion de 24.047 eventos, travel de actuacion
+// mediano plano en 25.0 los 5 tramos) y un rango dinamico que muta a mitad de
+// partida contradice el objetivo de configuracion inmutable. La calibracion de
+// reposo por boot (CALIB_ZERO_TRAVEL_POWER_ON) sigue compensando temperatura.
+// alex_lab lo re-enciende para seguir experimentando.
+#undef ANALOG_BOTTOM_OUT_LEARN
+#define ANALOG_BOTTOM_OUT_LEARN 0
+
 #ifdef RGB_MATRIX_ENABLE
 // Optimize RGB matrix for maximum performance
 // Limit the max brightness to reduce power draw
