@@ -800,6 +800,19 @@ void analog_matrix_eeconfig_init(void) {
         reset_profiles = true;
     }
 
+    // Migracion de layout de EEPROM: si la version del datablock guardado no
+    // coincide con la del firmware (p.ej. tras el desplazamiento de offset de
+    // ead3fa0), cargar los perfiles guardados los interpretaria desalineados y
+    // los corromperia en silencio — y los perfiles no tienen la red de clamps
+    // que sanea la calibracion mas abajo. Tratarlo como reset: cargar perfiles
+    // default y sellar la version nueva. Una calibracion desalineada la sanean
+    // los clamps de rango + la recalibracion de reposo por boot; recalibrar en
+    // Launcher tras un cambio de version es lo recomendado.
+    if (!eeconfig_is_kb_datablock_valid()) {
+        reset_profiles = true;
+        eeprom_update_dword(EECONFIG_KEYBOARD, (EECONFIG_KB_DATA_VERSION));
+    }
+
     profile_init(reset_profiles);
 
     uint8_t *buf = (uint8_t *)malloc(EECONFIG_SIZE_ANALOG_MATRIX);
