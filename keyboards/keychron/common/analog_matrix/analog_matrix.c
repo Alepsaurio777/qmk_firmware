@@ -950,7 +950,16 @@ bool update_raw_value(uint8_t row, uint8_t col, uint16_t value) {
     if (raw_noise_filter) {
         const uint16_t last_val = k->last_val;
         const uint16_t delta    = value > last_val ? value - last_val : last_val - value;
-        if (delta < raw_noise_filter) return false;
+        if (delta < raw_noise_filter) {
+#if ANALOG_PREDICTIVE_ACTUATION_IN_GAMING_MODE
+            // Scan silencioso (delta bajo el filtro): decaer vel_ema igual.
+            // Sin esto, la velocidad del ultimo golpe quedaba congelada durante
+            // el hold/reposo y un movimiento pequeño posterior la heredaba,
+            // anticipando la actuacion predictiva de mas.
+            k->vel_ema -= k->vel_ema >> ANALOG_PREDICTIVE_EMA_SHIFT;
+#endif
+            return false;
+        }
     }
 
     k->last_val = value;

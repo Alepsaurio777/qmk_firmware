@@ -78,7 +78,11 @@ static inline bool is_layer_switch_keycode(uint16_t keycode) {
            IS_QK_PERSISTENT_DEF_LAYER(keycode) || // PDF(): fija la capa default y la persiste a EEPROM -> escape permanente de Gaming
            IS_QK_TOGGLE_LAYER(keycode) ||
            IS_QK_ONE_SHOT_LAYER(keycode) ||
-           IS_QK_LAYER_TAP_TOGGLE(keycode);
+           IS_QK_LAYER_TAP_TOGGLE(keycode) ||
+           // TL_LOWR/TL_UPPR: TRI_LAYER_ENABLE viene compilado via defaults de
+           // VIA (verificado en cflags), asi que estos dos keycodes activarian
+           // capas Win desde Gaming si Launcher los remapea.
+           keycode == QK_TRI_LAYER_LOWER || keycode == QK_TRI_LAYER_UPPER;
 }
 
 static inline bool is_profile_select_keycode(uint16_t keycode) {

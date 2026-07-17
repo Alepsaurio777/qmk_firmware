@@ -88,6 +88,11 @@ void socd_action(void) {
                             // Both bottomed out: register both, or keep the
                             // current winner only in SINGLE mode.
                             if (socd[i].type == SOCD_PRI_DEEPER_TRAVEL_SINGLE) {
+                                // Sin ganador previo (estado recien reseteado
+                                // por boot/cambio de perfil con ambas al
+                                // fondo): resolver por profundidad en vez de
+                                // dejar pasar ambas direcciones.
+                                if (socd_state[i] == 0) socd_state[i] = (t1 >= t2) ? KEY_1_ACTIVE : KEY_2_ACTIVE;
                                 keep_last_state = true;
                             }
                             break;
@@ -118,8 +123,20 @@ void socd_action(void) {
                             socd_mask[row2] &= ~(0x01 << col2);
                             socd_state[i] = KEY_1_ACTIVE;
 
-                        } else
+                        } else {
+                            // Ambas cruzaron actuacion en el MISMO scan: no hay
+                            // "ultima pulsacion" real que preferir. Si ademas no
+                            // hay ganador previo (socd_state==0, primer uso tras
+                            // boot/cambio de perfil), sin esto pasaban AMBAS
+                            // direcciones hasta soltar una. Resolver por
+                            // profundidad como desempate deterministico.
+                            if (socd_state[i] == 0) {
+                                uint8_t t1 = analog_matrix_get_travel(row1, col1);
+                                uint8_t t2 = analog_matrix_get_travel(row2, col2);
+                                socd_state[i] = (t1 >= t2) ? KEY_1_ACTIVE : KEY_2_ACTIVE;
+                            }
                             keep_last_state = true;
+                        }
                         break;
 
                     case SOCD_PRI_KEY_1:
