@@ -219,6 +219,9 @@ bool profile_select(uint8_t prof_idx, bool indication, bool save_eeprom) {
     if (prof_idx >= PROFILE_COUNT) return false;
 
     if (prof_idx != current_profile_index) {
+        extern void okmc_release_all_active(void);
+        okmc_release_all_active();
+
         current_profile_index = prof_idx;
 
         cur_prof = &profile[prof_idx];

@@ -40,17 +40,13 @@ matrix_row_t okmc_matrix[MATRIX_ROWS] = {0};
 static void report_action(bool add, uint16_t keycode) {
     if (add) {
         if (IS_BASIC_KEYCODE(keycode)) {
-            if (!is_key_pressed(keycode)) {
-                add_key(keycode);
-            }
+            add_key(keycode);
         } else if (IS_MODIFIER_KEYCODE(keycode)) {
             add_mods(MOD_BIT(keycode));
         }
     } else {
         if (IS_BASIC_KEYCODE(keycode)) {
-            if (is_key_pressed(keycode)) {
-                del_key(keycode);
-            }
+            del_key(keycode);
         } else if (IS_MODIFIER_KEYCODE(keycode)) {
             del_mods(MOD_BIT(keycode));
         }
@@ -231,6 +227,26 @@ bool okmc_action(analog_key_t *key) {
     }
 
     return changed;
+}
+
+void okmc_release_all_active(void) {
+    analog_matrix_profile_t *cur = profile_get_current();
+    if (!cur) return;
+    extern analog_key_t analog_key_matrix[MATRIX_ROWS][MATRIX_COLS];
+    for (uint8_t r = 0; r < MATRIX_ROWS; ++r) {
+        for (uint8_t c = 0; c < MATRIX_COLS; ++c) {
+            analog_key_t *k = &analog_key_matrix[r][c];
+            // Cualquier estado != RELEASED puede tener salidas aun presionadas.
+            // En particular DEEP_DEACTUATED: el deep-deact ya corrio pero el
+            // shallow-deact no, asi que las salidas del shallow-act siguen
+            // abajo — excluirlo dejaria esas teclas pegadas al cambiar perfil.
+            if (k->mode == AKM_DKS && k->state != OKMC_RELEASED) {
+                if (k->okmc_idx < OKMC_COUNT) {
+                    release_okmc_keys(&cur->okmc[k->okmc_idx]);
+                }
+            }
+        }
+    }
 }
 
 void okmc_clear(void) {
