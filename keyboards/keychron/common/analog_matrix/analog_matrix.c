@@ -166,7 +166,7 @@ extern void socd_action(void);
 
 static calibrated_value_t calib_values[MATRIX_ROWS][MATRIX_COLS];
 static calibrated_value_t saved_calib_values[MATRIX_ROWS][MATRIX_COLS];
-static analog_key_t       analog_key_matrix[MATRIX_ROWS][MATRIX_COLS];
+analog_key_t       analog_key_matrix[MATRIX_ROWS][MATRIX_COLS];
 
 static uint16_t      calibrate_values[MATRIX_ROWS][MATRIX_COLS][CAL_SAMPL_CNT];
 #if ANALOG_AUTO_CALIBRATION_ENABLE
@@ -808,12 +808,19 @@ void analog_matrix_eeconfig_init(void) {
     // default y sellar la version nueva. Una calibracion desalineada la sanean
     // los clamps de rango + la recalibracion de reposo por boot; recalibrar en
     // Launcher tras un cambio de version es lo recomendado.
+    bool migrate_layout = false;
     if (!eeconfig_is_kb_datablock_valid()) {
         reset_profiles = true;
-        eeprom_update_dword(EECONFIG_KEYBOARD, (EECONFIG_KB_DATA_VERSION));
+        migrate_layout = true;
     }
 
     profile_init(reset_profiles);
+
+    // Sellar la version DESPUES de escribir los perfiles default (atomicidad):
+    // si se corta la alimentacion a mitad de la migracion, la version vieja
+    // sigue en EEPROM y el siguiente boot repite la migracion completa, en vez
+    // de aceptar como valida una mezcla de perfiles a medio escribir.
+    if (migrate_layout) eeprom_update_dword(EECONFIG_KEYBOARD, (EECONFIG_KB_DATA_VERSION));
 
     uint8_t *buf = (uint8_t *)malloc(EECONFIG_SIZE_ANALOG_MATRIX);
     if (!buf) {
@@ -955,8 +962,15 @@ bool update_raw_value(uint8_t row, uint8_t col, uint16_t value) {
             // Scan silencioso (delta bajo el filtro): decaer vel_ema igual.
             // Sin esto, la velocidad del ultimo golpe quedaba congelada durante
             // el hold/reposo y un movimiento pequeño posterior la heredaba,
-            // anticipando la actuacion predictiva de mas.
-            k->vel_ema -= k->vel_ema >> ANALOG_PREDICTIVE_EMA_SHIFT;
+            // anticipando la actuacion predictiva de mas. Decay minimo de 1:
+            // con v -= v>>N, los valores 1..(2^N - 1) nunca decaen (3>>2 == 0)
+            // y el residuo empuja el umbral (3 + delta chico cruza
+            // MIN_VELOCITY=4 cuando desde cero no lo haria).
+            {
+                uint8_t vel_dec = k->vel_ema >> ANALOG_PREDICTIVE_EMA_SHIFT;
+                if (vel_dec == 0 && k->vel_ema) vel_dec = 1;
+                k->vel_ema -= vel_dec;
+            }
 #endif
             return false;
         }
@@ -974,7 +988,11 @@ bool update_raw_value(uint8_t row, uint8_t col, uint16_t value) {
     // ANALOG_PREDICTIVE_ACTUATION_IN_GAMING_MODE == 0 (binario estable).
     {
         const uint8_t delta_down = (k->travel > k->last_travel) ? (uint8_t)(k->travel - k->last_travel) : 0;
-        k->vel_ema = (uint8_t)(k->vel_ema - (k->vel_ema >> ANALOG_PREDICTIVE_EMA_SHIFT) + (delta_down >> ANALOG_PREDICTIVE_EMA_SHIFT));
+        // Decay minimo de 1 cuando vel_ema>0 (mismo motivo que en el filtro de
+        // ruido): drena los residuos 1..3 que v>>2 dejaria vivos para siempre.
+        uint8_t vel_dec = k->vel_ema >> ANALOG_PREDICTIVE_EMA_SHIFT;
+        if (vel_dec == 0 && k->vel_ema) vel_dec = 1;
+        k->vel_ema = (uint8_t)(k->vel_ema - vel_dec + (delta_down >> ANALOG_PREDICTIVE_EMA_SHIFT));
     }
 #endif
 

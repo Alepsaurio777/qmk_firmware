@@ -130,7 +130,10 @@
 #endif
 
 static inline bool analog_matrix_is_gaming_mode(void) {
-    return ((layer_state | default_layer_state) & ~ANALOG_GAMING_LAYERS_MASK) == 0;
+    // SOLO la capa default (= interruptor fisico). Incluir layer_state aqui
+    // reabria un escape del lockdown: con Fn sostenido durante el cambio de
+    // interruptor, el bit de la capa Fn mantenia esto en falso ya en Gaming.
+    return (default_layer_state & ~ANALOG_GAMING_LAYERS_MASK) == 0;
 }
 
 #ifndef BOTTOM_DEAD_ZONE
