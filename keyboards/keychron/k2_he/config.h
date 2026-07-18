@@ -92,12 +92,11 @@
 #define FN_KEY_2 MO(3)
 #define FN_BL_TRIG_KEY KC_END
 
-// Polling rate fijado en compile-time: div 0 = un reporte por frame USB. En
-// este STM32F401 el USB es Full-Speed, asi que el techo real es 1 kHz (no 8 kHz,
-// que exigiria High-Speed). KEYCHRON_FIXED_REPORT_RATE ignora la EEPROM y bloquea
-// cambios en runtime (HID de Launcher y combos Fn): rate deterministico por boot.
-#define KEYCHRON_DEFAULT_REPORT_RATE_DIV 0
-#define KEYCHRON_FIXED_REPORT_RATE
+// Report rate: 1 kHz real y fijo, garantizado por el DESCRIPTOR USB compilado
+// (endpoints interrupt con bInterval=1 en Full-Speed; el F401 no puede mas).
+// Los antiguos KEYCHRON_DEFAULT_REPORT_RATE_DIV / KEYCHRON_FIXED_REPORT_RATE
+// eran codigo muerto: usb_report_rate.c ni siquiera se compila porque
+// USB_REPORT_INTERVAL_ENABLE no esta habilitado en estos builds.
 
 // Disable QMK core debounce to prevent rapid trigger delay
 #define DEBOUNCE 0
