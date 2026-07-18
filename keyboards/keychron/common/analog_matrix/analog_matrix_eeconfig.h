@@ -30,11 +30,19 @@
 
 #define CURVE_POINTS_COUNT 4
 
+// Version del PROTOCOLO HID que Launcher consulta (AMC_GET_VERSION responde
+// con el byte bajo). Launcher solo entiende las versiones que conoce: subirla
+// degrada su UI analogica (sin visualizacion de presion, paneles RT/DKS
+// apagados — comprobado 17-jul con 0x...05). NO cambiarla por cambios de
+// layout de EEPROM; para eso esta KC_ANALOG_MATRIX_EEPROM_VERSION.
+#define KC_ANALOG_MATRIX_VERSION 0x34340004
+
+// Version del LAYOUT del datablock EEPROM (independiente del protocolo HID).
 // 0x34340005 (17-jul-2026): ead3fa0 desplazo OFFSET_CALIBRATED_DATA_START +1
-// (y con el, OFFSET_PROFILES_START) sin subir la version. Se sube ahora para
-// que analog_matrix_eeconfig_init() detecte EEPROM de layout viejo y resetee
-// perfiles a default en vez de cargarlos desalineados.
-#define KC_ANALOG_MATRIX_VERSION 0x34340005
+// (y con el, OFFSET_PROFILES_START) sin subir version; el guard de
+// analog_matrix_eeconfig_init() usa esta para detectar EEPROM de layout viejo
+// y resetear perfiles a default en vez de cargarlos desalineados.
+#define KC_ANALOG_MATRIX_EEPROM_VERSION 0x34340005
 #define SIZE_OF_CALIB_VALUE_T 3       // Size of calibrated_value_t
 #define SIZE_OF_ANALOG_KEY_CONFIG_T 4 // Size of analog_key_config_t
 #define SIZE_OF_OKMC_CONFIG_T 19      // Size of okmc_config_t
@@ -70,6 +78,6 @@
 /* Size of analog matrix eeconfig */
 #define EECONFIG_SIZE_ANALOG_MATRIX OFFSET_GAME_CONTROLLER_MODE_END
 /* EE config data version */
-#define EECONFIG_KB_DATA_VERSION KC_ANALOG_MATRIX_VERSION
+#define EECONFIG_KB_DATA_VERSION KC_ANALOG_MATRIX_EEPROM_VERSION
 
 #define EXTERNAL_EEPROM_OFFSET 4
