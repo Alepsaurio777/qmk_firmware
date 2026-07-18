@@ -383,7 +383,11 @@ bool profile_save(uint8_t prof_index) {
 
     analog_matrix_profile_t *prof = &profile[prof_index];
 
-    if (!eeconfig_is_kb_datablock_valid()) eeprom_update_dword(EECONFIG_KEYBOARD, (EECONFIG_KB_DATA_VERSION));
+    // Sin sello de version aqui: tras el init la version siempre es valida
+    // (analog_matrix_eeconfig_init la sella al FINAL de la migracion), y
+    // sellarla desde aqui rompia la atomicidad — profile_reset(0) llama a
+    // profile_save durante la migracion y sellaba ANTES de que los perfiles
+    // 1 y 2 se escribieran (corte de luz = version valida + perfiles a medias).
     analog_matrix_eeprom_update(prof, (void *)OFFSET_PROFILES_START + prof_index * sizeof(analog_matrix_profile_t), sizeof(analog_matrix_profile_t));
 
     return true;
