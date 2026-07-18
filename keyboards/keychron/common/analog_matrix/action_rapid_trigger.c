@@ -74,7 +74,13 @@ static inline bool rt_predictive_downstroke_ready(const analog_key_t *key, bool 
     //   ahora:   travel + vel_ema * LOOKAHEAD  >= target  (escala con velocidad)
     if (key->vel_ema < ANALOG_PREDICTIVE_MIN_VELOCITY) return false;
 
-    if (key->travel < MIN_ACTUATION) return false;
+    // Piso de prediccion: el dedo debe haber recorrido ya al menos la MITAD
+    // del objetivo antes de especular el resto. Sin esto, con vel_ema alta la
+    // proyeccion permitia disparar desde MIN_ACTUATION (5 = ~0.08 mm) y un
+    // roce rapido superficial podia registrar un press que el RT fisico nunca
+    // daria. Proporcional a la config: con actuacion 24 (0.4 mm) el piso queda
+    // en 12 (0.2 mm) y la anticipacion maxima acotada a medio recorrido.
+    if (key->travel < MIN_ACTUATION || key->travel < (uint8_t)(target >> 1)) return false;
 
     const uint16_t projected = (uint16_t)key->travel + (uint16_t)key->vel_ema * ANALOG_PREDICTIVE_LOOKAHEAD;
     return projected >= target;
