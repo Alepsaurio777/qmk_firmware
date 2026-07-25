@@ -68,7 +68,13 @@ reporta travel 0, en vez de leer fuera de rango.
 4. **Curva completa**: pulsación lenta de 0 a fondo → debe llegar a 240 sin
    saltos; saltos = problema de calibración o de LUT.
 
-Registrar resultados en TEST-RESULTS.md del lab (mismo protocolo que Ornithe).
+Los cuatro puntos de arriba se miden con `--plot` o sin flags (consola), o sea en
+**modo Win**: el stream de travel se auto-apaga al pasar a Gaming. Para medir
+mecánica de juego se usa `--events`, que sí corre en Gaming (siguiente sección).
+
+Guardar cada sesión con `--csv` y un nombre que diga build y fecha
+(`sesion-lab-25jul.csv`): el valor de estas mediciones está en compararlas entre
+sí, y un CSV sin procedencia no sirve para eso.
 
 ## Logger de eventos (mistype-hunt)
 

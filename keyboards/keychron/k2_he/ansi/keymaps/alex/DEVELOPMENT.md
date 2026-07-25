@@ -33,6 +33,16 @@ Bien (se compila fuera cuando el flag está off):
 
 La prueba de que quedó bien aislado: el **delta de tamaño** entre los dos `.bin`. Si `alex` no creció al añadir la feature, está fuera de verdad.
 
+Referencia actual (25-jul): **`alex` 54288 B**, **`alex_lab` 56680 B**.
+
+Matiz importante sobre el invariante: sólo aplica a **features experimentales
+detrás de un flag**. No aplica a arreglos de corrección en código que está en
+torneo a propósito — la telemetría, por ejemplo, que vive en los dos binarios
+porque la comparación torneo/lab necesita medir ambos. El 24-jul `alex` creció de
+53952 a 54288 B al resolver las teclas vigiladas por keycode en vez de por
+coordenada fija; eso es correcto y no una fuga. Si `alex` crece, la pregunta no es
+«¿cuánto?» sino **«¿es una feature de lab o un arreglo de algo que ya estaba?»**.
+
 ## Cómo añadir una feature experimental nueva
 
 1. Escribe el código en `common/` detrás de `#if MI_FLAG`.
@@ -85,3 +95,14 @@ Una feature graduá de `alex_lab` a `alex` solo si:
 4. **Para MC 1.8.9**: beneficio real por encima del tick de servidor de 50 ms. Ganar sub-milisegundos no cuenta.
 
 Lo que no pase los 4 se queda en `alex_lab` como juguete, no como firmware de torneo.
+
+**El #4 es el que más ha matado ideas, y conviene tenerlo a mano en su forma
+aritmética**: un tick de MC 1.8.9 son 50 ms = **50 frames USB**. Cualquier mejora
+de µs o de pocos ms es sub-tick, y su ganancia *esperada* es exactamente su
+tamaño — el tick no la amplifica en promedio, solo la vuelve grumosa. Por eso el
+único trabajo que puede graduarse es el que cambia **si el juego ve el input o
+no** (F6/F9/F8), no el que lo hace llegar antes.
+
+**El #3 no es una puerta de promoción, es una puerta de «esto lo corro en un
+servidor real»**. Una feature puede fallar el #1, #2 o #4 y seguir siendo un
+experimento legítimo en `alex_lab`. Si falla el #3, no se construye ni ahí.

@@ -1,9 +1,25 @@
 # K2 HE firmware custom — registro del proyecto
-### Sesiones 12-13 jul 2026 · Todo medido con la telemetría propia sobre hardware real
+### Sesiones 12 jul – 25 jul 2026 · Lo medido, medido con la telemetría propia sobre hardware real
 
-## Resultado final
+## Estado actual
 
-Cadena de input del teclado, antes y después:
+**La cadena de latencia está cerrada y validada** (12-13 jul, tabla abajo). Lo
+posterior no es latencia: es **mecánica de tick** — que el juego vea el input o
+no — más la instrumentación para poder decidirlo con datos.
+
+| Área | Estado |
+|---|---|
+| Latencia y jitter del barrido | **Cerrado y medido.** Nada más que ganar (ver «Qué podría seguir») |
+| F6 mínimo-OFF (W, SPC) | Construido, `alex_lab`. **Sin validar en hardware** |
+| F9 mínimo-ON (SPC) | Construido 24-jul, `alex_lab`. **Sin validar en hardware** |
+| F7 whitelist predictiva | Construido. RT predictivo marcado como juguete permanente de lab |
+| F8 ON-stretch para S | **No construido**, condicionado a s-tapear |
+| Instrumentación | evlog v3 (flujo físico + reportado en una sesión), `--policy`, re-resolución en caliente |
+| Hardcodes de coordenadas | **Eliminados del proyecto** (24-jul, incluida la tabla de la telemetría). Todo por keycode |
+
+Tamaños de referencia: `alex` 54288 B, `alex_lab` 56680 B.
+
+### La cadena de input, antes y después (12-13 jul)
 
 | Métrica | Antes | Después |
 |---|---|---|
@@ -113,49 +129,77 @@ Validado el 13-jul: fase estable *incluso con teclas activas y RT disparando*.
 
 ## Validación pendiente (Alex)
 
+**El evlog v3 disolvió el requisito de las dos sesiones.** El plan anterior pedía
+una sesión TORNEO y otra LAB con «el mismo drill, mismos números» para tener
+histogramas comparables — y que dos drills «iguales» lo sean de verdad era la
+mayor fuente de error del A/B. Ya no hace falta: el flujo **físico** en LAB es lo
+que el reportado en TORNEO sería, porque los stretches no tocan el flanco físico.
+Una sola sesión LAB da los dos histogramas. Cobertura completa: W y SPC dan los
+dos flujos; A/S/D no tienen stretch, así que su reportado *es* el físico.
+
+### Antes de jugar (2 min, LAB flasheado, Launcher CERRADO)
+
+- [ ] `--policy`: los slots deben salir F6 en `(2,2)` y `(5,6)`, F9 en `(5,6)`.
+      Un `-` significa que ese keycode no está en la capa base de Gaming y la
+      feature no está actuando — mejor saberlo antes de jugar media hora.
+- [ ] Remapear W en Launcher y re-correr `--policy` **sin girar el interruptor**:
+      la coordenada debe moverse. Eso valida la re-resolución en caliente.
+      Deshacer el remap después.
+- [ ] **Efecto observador del evlog. Va antes que todo lo demás.**
+      `telemetry_task` se auto-apaga en Gaming; `evlog_task` no — y no debe,
+      medir en Gaming es su razón de ser. O sea que durante una sesión armada
+      manda paquetes Raw HID desde housekeeping, al lado del barrido; y como el
+      barrido está anclado al SOF con espera acotada a 400 µs, una iteración
+      larga no lo retrasa: le hace **perder la ventana**. Correr el probe con el
+      evlog armado vs en reposo y comparar duración y fase. Si la fase se sale
+      del rango estable 890–935 µs con el evlog armado, todos los números
+      posteriores llevan ese sesgo.
+- [ ] F9 en seco: un tap corto de espacio debe dar ≥55 ms de ON en `src=rep`
+      mientras `src=fis` muestra la duración real, con el ciclo completo por
+      debajo de ~110 ms.
+- [ ] Que un tap de espacio produzca **un solo** flanco `src=fis`, no dos. El
+      guard contra el doble conteo está verificado en el desensamblado (F6 se
+      calla en las teclas que F9 ya reporta), pero eso confirma que el código
+      está, no que el comportamiento en vivo sea el esperado. Si salieran dos,
+      el histograma físico estaría inflado al doble justo en la medición para la
+      que existe F9.
+
+### La sesión que decide F6 y F9 (una sola, con el build LAB)
+
+- [ ] Sesión de juego real con `--events --csv`: w-taps y jump-resets. De ahí
+      salen las dos tablas de ventanas OFF, `REPORTADO` y `FÍSICO`, de la misma
+      corrida y por tanto comparables. El físico dice cuántos taps hiciste de
+      verdad; el reportado, cuántos podía ver el juego. La diferencia es lo que
+      compran los stretches, y su coste en latencia.
+      Antes de empezar: **subir el release de W a 0.3 mm en Launcher** — el
+      stretch hace visible también el micro-release accidental por temblor con el
+      dedo apoyado, y a 0.2 mm queda muy justo en pelea.
+      Evaluar además la sensación del w-tap (re-press hasta ~30 ms más tarde) y
+      los falsos sprint-reset por temblor. La columna `stretch` cuenta los
+      disparos del clamp.
+- [ ] Mismo CSV: fantasmas de espacio tras el recorte REPRESS (SPC fuera de la
+      máscara) deben ir a ~0 **estructuralmente** — sin predicción de re-press no
+      hay re-press especulativo. Ahora sí es medible en LAB: el flujo `src=fis`
+      ve los sub-10 ms que el clamp esconde del reportado.
+- [ ] F7: que S y W ya no predigan (una prensa rápida superficial no debe
+      disparar antes del cruce físico) y que SPC (solo primer press) y A/D sigan
+      prediciendo.
+
+### Control, ya no prerrequisito
+
+- [ ] Sesión con build TORNEO: confirmar que el físico-en-LAB coincide de verdad
+      con el reportado-en-TORNEO, y medir el efecto observador en el build que de
+      verdad se usa (el probe es solo-lab, así que aquí solo se puede comparar
+      indirectamente).
+
+### Independientes del batch de stretches
+
 - [ ] Launcher: RT gaming 0.3/0.2 · Rappy Snappy A/D · OKMC de prueba
 - [ ] Escritura con OKMC disparando (valida cola diferida)
-- [ ] Lab Ornithe: strafes + jump-resets → TEST-RESULTS.md
 - [ ] Medición D: reposo en frío vs tras 1-2 h sin desconectar → decide F2b
 - [ ] Veredicto OKMC → decide F5
-- [ ] Sesión evlog con build TORNEO (stretch off): % ventanas OFF <50 ms y
-      `fallo^` en W/SPC durante w-taps/jump-resets reales → decide si F6 se queda
-- [ ] A/B con build LAB: **mismo drill en Ornithe que la sesión torneo**
-      (N w-taps + M jump-resets, mismos números) para histogramas comparables;
-      piso 55 ms en W/SPC; evaluar sensación del w-tap (re-press hasta ~30 ms
-      más tarde) y falsos sprint-reset por temblor (antes: W release 0.3 en
-      Launcher). La columna `stretch` dice cuántas veces disparó el clamp.
-- [ ] Re-correr mistype-hunt tras el recorte REPRESS (SPC fuera): fantasmas
-      de espacio deben ir a ~0 estructuralmente (sin predicción de re-press no
-      hay re-press especulativo). OJO: con build LAB el evlog no puede ver
-      eventos <55 ms en W/SPC (el stretch los clampea) — la verificación de
-      fantasmas sub-10 ms en esas dos teclas solo es medible con TORNEO.
-- [ ] F7: verificar que S/W ya no predicen (prensa rápida superficial no
-      dispara antes del cruce físico) y que SPC (solo primer press) y A/D
-      siguen prediciendo
-- [ ] **Efecto observador del evlog** (24-jul, va PRIMERO): `telemetry_task` se
-      auto-apaga en Gaming, pero `evlog_task` no — y no debe, medir en Gaming es
-      su razón de ser. O sea que durante una sesión armada manda paquetes Raw HID
-      desde housekeeping, al lado del barrido; y como el barrido está anclado al
-      SOF con espera acotada a 400 µs, una iteración larga no lo retrasa: le hace
-      **perder la ventana**. Correr el probe con el evlog armado vs en reposo y
-      cuantificarlo. Sin esto no sabes cuánto valen los demás números. Ojo: el
-      probe es solo-lab y la sesión crítica del evlog es solo-torneo.
-- [ ] F9: verificar que un tap corto de espacio produce ≥55 ms de ON reportado
-      (columna `src=rep`) mientras el `src=fis` muestra la duración real, y que
-      encadenado con F6 el ciclo completo no pasa de ~110 ms
-- [ ] `--policy` en hardware: confirmar que los slots salen en W (2,2) y SPC
-      (5,6), y que tras remapear W en Launcher la coordenada se mueve **sin**
-      girar el interruptor (eso valida la re-resolución en caliente)
-- [ ] Verificar en hardware la resolución por keycode (24-jul): remapear W a
-      otra posición desde Launcher, girar el interruptor a Win y volver, y
-      confirmar con el evlog que el release-stretch y la predicción siguen a la
-      tecla nueva y NO se quedan en la vieja. Cross-check estático ya hecho: los
-      6 keycodes resuelven a las mismas coordenadas que estaban hardcodeadas
-      (W 2,2 · A 3,1 · S 3,2 · D 3,3 · SPC 5,6 · LSFT 4,0), así que con el
-      keymap de fábrica el comportamiento es idéntico al de antes.
 - [ ] Config Launcher sin firmware: hotbar 1-5 actuación 1.2-1.5 mm ·
-      segundo par SOCD W/S para s-taps (opcional, probar en lab)
+      segundo par SOCD W/S para s-taps (condiciona F8)
 - [ ] Launcher: verificar qué tipo SOCD tiene el par A/D — con DEEPER_TRAVEL
       (no-SINGLE), ambas al fondo se registran las dos y el strafe se anula
       en MC; si el estilo es aplastar ambas, usar DEEPER_TRAVEL_SINGLE
@@ -165,6 +209,78 @@ Validado el 13-jul: fase estable *incluso con teclas activas y RT disparando*.
       en Gaming incluido); solo calibrar y reset de perfil siguen bloqueados
       en Gaming. Escotilla de tuning = idea aparcada, construir solo si
       algún día reaparece la necesidad de endurecer.
+
+## Qué podría seguir (inventario honesto, 25-jul)
+
+**Performance: se terminó, aritméticamente.** El barrido son 880–925 µs de un
+frame de 1000, el poll está en el techo físico del F401 Full-Speed (8 kHz exige
+otro MCU, no otro firmware) y **un tick de MC son 50 frames USB**. Para que el
+juego note una mejora de latencia habría que ahorrar ~50 ms; la latencia total de
+la cadena es 1–2 ms. No hay 50 ms que ahorrar en ningún sitio. Todo trabajo de
+latencia que quede es medible e inútil: falla el criterio #4 por construcción.
+
+Corolario: el firmware ya no puede mover un límite de tick **haciéndose más
+rápido**. Solo puede moverlo cambiando **si el juego ve el input o no**. Esa es la
+única palanca que queda, y es la clase F6/F9/F8.
+
+Inventario de mecánicas de tick, cerrado. Separando lo que MC 1.8.9 muestrea por
+**estado** (vulnerable a sub-tick) de lo que procesa por **evento** (no se pierde):
+
+| Tecla | Muestreo | Garantía |
+|---|---|---|
+| Espacio | estado | **F6 + F9**, las dos. Hecho |
+| W | estado | Solo OFF (**F6**). Su mecánica la dispara que se vea el OFF; un ON invisible cuesta un tick de movimiento, molesto pero no rompe mecánica. Extender su ON sería movimiento no pedido, mortal en un borde de sumo |
+| S | estado | **F8**, condicionado a s-tapear y al tipo de par SOCD |
+| A / D | estado | Ninguna: se sostienen ≫50 ms y el null-bind lo hace SOCD |
+| LShift | estado | Ninguna: un unshift no visto al bridgear es un fallo seguro |
+| LCtrl (sprint) | estado | Ninguna: se sostiene, no se tapea |
+| 1-9, Q, E, chat | **evento** | Ninguna: LWJGL los encola y el cliente los drena por frame, no por tick |
+
+Con eso, lo único construible que queda es **F8**, y está condicionado. El pozo
+está casi seco y eso es buena señal: la superficie útil es estrecha por
+construcción — el tick deja una sola palanca, la mayoría del resto lo resuelve
+Launcher, y lo que quedaría choca con el criterio #3 o el #4.
+
+### Descartado con razón (para no volver a proponerlo)
+
+- **Actuación condicional por modificador** (S más profunda con LShift
+  sostenido). Contradice un principio ya establecido: el mismo por el que
+  `ANALOG_BOTTOM_OUT_LEARN` está apagado en torneo, *«un rango dinámico que muta
+  a mitad de partida contradice el objetivo de configuración inmutable»*. Y el
+  switch se sentiría idéntico con el umbral movido, o sea hardware impredecible
+  para el usuario. Si algún día estorban los pasos accidentales de S, la
+  respuesta es subir S en Launcher, no que el firmware adivine el contexto.
+- **Inyectar mistypes / aleatoriedad** para «ser impredecible». Lo prohíbe el
+  criterio #3 palabra por palabra (sintetizar algo indistinguible de un error), y
+  además no funciona: un teclado que falla a propósito es un teclado peor. La
+  impredecibilidad ante un rival sale de las decisiones de movimiento, no del
+  jitter del teclado.
+- **Inferir la fase del tick del servidor** para alinear reportes: no hay canal,
+  el teclado no sabe nada del juego.
+- **Estirar el release de A/D** en cambios de strafe: forzaría ~55 ms de neutral
+  en cada reversión.
+- **Tuning del RT predictivo.** Adelanta 1–3 ms; en un tick de 50 ms la ganancia
+  *esperada* es exactamente ese 1–3 ms (el tick no la amplifica en promedio, solo
+  la vuelve grumosa: ~5% de las veces ganas un tick, el resto nada). Falla el #4
+  estructuralmente igual que la latencia del barrido, y paga una tasa no nula de
+  presses fantasma, que es el #3. Marcado como **juguete permanente de lab**, no
+  candidato a torneo — para dejar de gastarle sesiones de medición. No se borra:
+  `vel_ema` y su telemetría son datos útiles.
+
+### Deuda técnica conocida
+
+- **Parches en QMK core** (`quantum/action.c`, `action_util.c`,
+  `tmk_core/protocol/report.c`): el refcount por keycode y modificador en el path
+  de reporte. Arregla un bug real de upstream, pero cada rebase contra QMK va a
+  doler. Está en su propio commit (`42cd346`) para poder bisecarlo o replicarlo.
+- **La política y las teclas de la telemetría se resuelven contra
+  `ANALOG_POLICY_LAYER`**, y la coincidencia de keycode es exacta: un `KC_W`
+  envuelto en mod-tap o layer-tap no entra en las whitelists.
+- **`ANALOG_DISABLE_OKMC/TOGGLE/GAMEPAD/PROFILE_COMBO_IN_GAMING_MODE`** siguen
+  siendo firmware pisando config de Launcher. Es política deliberada (son los
+  modos que sintetizan o enganchan input) y se mantiene a sabiendas, pero es la
+  única excepción que queda a la regla de «el firmware no fija lo que la config
+  puede fijar».
 
 ## Guardas del modo Gaming (recordatorio)
 
