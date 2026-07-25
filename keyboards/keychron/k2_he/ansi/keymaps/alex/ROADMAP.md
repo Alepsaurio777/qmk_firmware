@@ -131,8 +131,19 @@ Validado el 13-jul: fase estable *incluso con teclas activas y RT disparando*.
 perfil, bootloader/reboot/EEPROM, power/sleep/wake del host (flashear =
 interruptor en Win), QK_MAGIC, keycodes wireless. LGUI se queda en el keymap (KC_NO hardcodeado revertido el
 19-jul: desactivar Win en Gaming es preferencia por tecla que Launcher ya
-resuelve — el firmware no fija lo que la config puede fijar). `config.h`
-desactiva en Gaming: OKMC, toggle, gamepad, combos de perfil. Canal Raw HID
+resuelve — el firmware no fija lo que la config puede fijar). Aplicando esa
+misma regla se eliminaron el 24-jul dos **hardcodes dormidos** (inertes con la
+config de hoy, y que se despertaban al mover un slider en Launcher sin que nada
+lo indicase): `STATIC_HYSTERESIS_GAMING_FAST_KEY` + `ANALOG_GAMING_FAST_KEY_*`
+(histéresis propia para el Espacio, elegida por coordenada de matriz; ya la
+capaba `actn_pt/2` con actuación ≤ 0.4 mm, divergía sólo a partir de 0.6 mm) y
+`ANALOG_GAMING_DEFAULT_RAPID_PROFILE` (clavaba Espacio y LShift en `AKM_RAPID`
+explícito al cargar la EEPROM, así que un cambio posterior de modo global a
+Regular ya no las movía). Los defaults de modo por tecla se quedan donde
+corresponde: `default_profiles[]`, que es tabla de reset y por tanto pisable.
+`config.h` desactiva en Gaming: OKMC, toggle, gamepad, combos de perfil (eso
+sí es política deliberada — son los modos que sintetizan o enganchan input — y
+sigue siendo firmware pisando config, a sabiendas). Canal Raw HID
 en Gaming: blacklist mínima (RESET_PROFILE y CALIBRATE). Se intentó (19-jul)
 una whitelist de solo-lectura que bloqueaba todo SET/SAVE/SELECT + los sets
 de VIA, y se REVIRTIÓ el mismo día: el tuning real exige el modo Gaming

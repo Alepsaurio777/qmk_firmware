@@ -119,26 +119,15 @@ uint8_t                         prof_combo     = 0;
 static uint8_t                  prof_ind_state = 0;
 static uint32_t                 pro_ind_timer  = 0;
 
-static inline void profile_default_key_to_rapid_if_global(analog_matrix_profile_t *prof, uint8_t row, uint8_t col) {
-    if (!ANALOG_COORD_IN_MATRIX(row, col)) return;
-
-    if (prof->key_config[row][col].mode == AKM_GLOBAL) {
-        prof->key_config[row][col].mode = AKM_RAPID;
-    }
-}
-
-static void profile_apply_default_rapid_keys(uint8_t prof_idx) {
-    if (ANALOG_GAMING_DEFAULT_RAPID_PROFILE >= PROFILE_COUNT ||
-        prof_idx != ANALOG_GAMING_DEFAULT_RAPID_PROFILE) {
-        return;
-    }
-
-    analog_matrix_profile_t *prof = &profile[prof_idx];
-    if (prof->global.mode != AKM_RAPID) return;
-
-    profile_default_key_to_rapid_if_global(prof, ANALOG_CONTINUOUS_RT_KEY1_ROW, ANALOG_CONTINUOUS_RT_KEY1_COL);
-    profile_default_key_to_rapid_if_global(prof, ANALOG_CONTINUOUS_RT_KEY2_ROW, ANALOG_CONTINUOUS_RT_KEY2_COL);
-}
+// (24-jul) profile_apply_default_rapid_keys eliminado. Al cargar la EEPROM
+// convertia el modo AKM_GLOBAL de Espacio y LShift en AKM_RAPID explicito
+// (guardado por global.mode == AKM_RAPID, de ahi que hoy no dispare: el perfil
+// gaming arranca en AKM_REGULAR). El problema no era el efecto de hoy sino el
+// de despues: en cuanto el modo global del perfil pasara a Rapid, esas dos
+// teclas quedaban clavadas y un cambio posterior a Regular ya no las movia —
+// un hardcode invisible en Launcher. Los defaults de modo por tecla ya viven
+// en default_profiles[] (perfil 1 marca WASD/espacio/LShift/LCtrl como Rapid),
+// que es una tabla de reset y por tanto pisable desde Launcher.
 
 void profile_init(bool reset) {
     if (reset) {
@@ -171,7 +160,6 @@ void profile_init(bool reset) {
             if (profile[i].global.act_pt == 0 || profile[i].global.act_pt > 39) profile[i].global.act_pt = DEFAULT_ACTUATION_POINT;
             if (profile[i].global.rpd_trig_sen == 0 || profile[i].global.rpd_trig_sen > 39) profile[i].global.rpd_trig_sen = profile_default_rt_sen[i];
             if (profile[i].global.rpd_trig_sen_deact == 0 || profile[i].global.rpd_trig_sen_deact > 39) profile[i].global.rpd_trig_sen_deact = profile_default_rt_sen_rls_get(i);
-            profile_apply_default_rapid_keys(i);
         }
 
         free(buf);
@@ -391,7 +379,6 @@ bool profile_reset(uint8_t prof_index) {
             }
         }
 
-    profile_apply_default_rapid_keys(prof_index);
     profile_save(prof_index);
     if (prof_index == profile_get_current_index()) socd_update_active_state();
 

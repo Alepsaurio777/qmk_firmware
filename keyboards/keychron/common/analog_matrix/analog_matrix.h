@@ -65,28 +65,24 @@
 #    define STATIC_HYSTERESIS_TYPING STATIC_HYSTERESIS
 #endif
 
-#ifndef STATIC_HYSTERESIS_GAMING_FAST_KEY
-#    define STATIC_HYSTERESIS_GAMING_FAST_KEY STATIC_HYSTERESIS_GAMING
-#endif
-
 #ifndef ANALOG_ADAPTIVE_SHALLOW_HYSTERESIS_GAMING
 #    define ANALOG_ADAPTIVE_SHALLOW_HYSTERESIS_GAMING 0
 #endif
 
-#ifndef ANALOG_GAMING_FAST_KEY_ROW
-#    define ANALOG_GAMING_FAST_KEY_ROW 0xFF
-#endif
-
-#ifndef ANALOG_GAMING_FAST_KEY_COL
-#    define ANALOG_GAMING_FAST_KEY_COL 0xFF
-#endif
+// (24-jul) STATIC_HYSTERESIS_GAMING_FAST_KEY y ANALOG_GAMING_FAST_KEY_ROW/COL
+// eliminados: daban histeresis distinta a UNA tecla elegida por coordenada de
+// matriz, invisible en Launcher. Y estaban inertes de facto — con
+// ANALOG_ADAPTIVE_SHALLOW_HYSTERESIS_GAMING la histeresis ya se capa a
+// actn_pt/2, que con actuacion <= 0.4 mm da el mismo valor. Solo divergian a
+// partir de 0.6 mm, o sea: se despertaban al mover un slider en Launcher sin
+// que nada lo indicase. La histeresis de Gaming es ahora uniforme.
 
 #ifndef ANALOG_CONTINUOUS_RT_KEY1_ROW
-#    define ANALOG_CONTINUOUS_RT_KEY1_ROW ANALOG_GAMING_FAST_KEY_ROW
+#    define ANALOG_CONTINUOUS_RT_KEY1_ROW 0xFF
 #endif
 
 #ifndef ANALOG_CONTINUOUS_RT_KEY1_COL
-#    define ANALOG_CONTINUOUS_RT_KEY1_COL ANALOG_GAMING_FAST_KEY_COL
+#    define ANALOG_CONTINUOUS_RT_KEY1_COL 0xFF
 #endif
 
 #ifndef ANALOG_CONTINUOUS_RT_KEY2_ROW
@@ -215,9 +211,12 @@ static inline bool analog_matrix_is_gaming_mode(void) {
 #    define ANALOG_PREDICTIVE_ACTUATION_IN_GAMING_MODE 0
 #endif
 
-#ifndef ANALOG_GAMING_DEFAULT_RAPID_PROFILE
-#    define ANALOG_GAMING_DEFAULT_RAPID_PROFILE 0xFF
-#endif
+// (24-jul) ANALOG_GAMING_DEFAULT_RAPID_PROFILE eliminado. Convertia el modo
+// AKM_GLOBAL de Espacio y LShift en un AKM_RAPID explicito al cargar la EEPROM,
+// asi que un cambio posterior de modo global en Launcher dejaba esas dos teclas
+// clavadas en Rapid. Los defaults de modo por tecla pertenecen a
+// default_profiles[] (tabla de reset, que Launcher puede pisar), no a un
+// override que corre en cada boot.
 
 #ifndef ANALOG_PREDICTIVE_RT_KEY1_ROW
 #    define ANALOG_PREDICTIVE_RT_KEY1_ROW ANALOG_CONTINUOUS_RT_KEY1_ROW
@@ -372,7 +371,6 @@ static inline bool analog_matrix_coord_matches(uint8_t row, uint8_t col, uint8_t
     return cfg_row != 0xFF && cfg_col != 0xFF && row == cfg_row && col == cfg_col;
 }
 
-STATIC_ASSERT(ANALOG_COORD_VALID(ANALOG_GAMING_FAST_KEY_ROW, ANALOG_GAMING_FAST_KEY_COL), "ANALOG_GAMING_FAST_KEY must be disabled or inside the matrix");
 STATIC_ASSERT(ANALOG_COORD_VALID(ANALOG_CONTINUOUS_RT_KEY1_ROW, ANALOG_CONTINUOUS_RT_KEY1_COL), "ANALOG_CONTINUOUS_RT_KEY1 must be disabled or inside the matrix");
 STATIC_ASSERT(ANALOG_COORD_VALID(ANALOG_CONTINUOUS_RT_KEY2_ROW, ANALOG_CONTINUOUS_RT_KEY2_COL), "ANALOG_CONTINUOUS_RT_KEY2 must be disabled or inside the matrix");
 STATIC_ASSERT(ANALOG_COORD_VALID(ANALOG_PREDICTIVE_RT_KEY1_ROW, ANALOG_PREDICTIVE_RT_KEY1_COL), "ANALOG_PREDICTIVE_RT_KEY1 must be disabled or inside the matrix");

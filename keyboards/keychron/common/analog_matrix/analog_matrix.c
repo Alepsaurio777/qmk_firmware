@@ -310,9 +310,6 @@ void update_key_config(uint8_t row, uint8_t col) {
     // Update deactuaction point
     const bool gaming_mode = analog_matrix_is_gaming_mode();
     uint8_t    static_hysteresis = gaming_mode ? STATIC_HYSTERESIS_GAMING : STATIC_HYSTERESIS_TYPING;
-    if (gaming_mode && row == ANALOG_GAMING_FAST_KEY_ROW && col == ANALOG_GAMING_FAST_KEY_COL) {
-        static_hysteresis = STATIC_HYSTERESIS_GAMING_FAST_KEY;
-    }
 
 #if ANALOG_ADAPTIVE_SHALLOW_HYSTERESIS_GAMING
     if (gaming_mode) {
