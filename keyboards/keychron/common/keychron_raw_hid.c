@@ -292,6 +292,9 @@ bool kc_raw_hid_rx(uint8_t src, uint8_t *data, uint8_t length) {
 }
 
 #    if defined(VIA_ENABLE)
+// (19-jul) Hubo un guard de comandos VIA mutantes en Gaming aqui; revertido el
+// mismo dia junto con la whitelist del 0xA9 — rompia el tuning con Launcher
+// (ver nota en analog_matrix_reject_raw_hid_in_gaming).
 bool via_command_kb(uint8_t src, uint8_t *data, uint8_t length) {
     return kc_raw_hid_rx(src, data, length);
 }

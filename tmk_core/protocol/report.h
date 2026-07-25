@@ -377,6 +377,11 @@ bool del_key_bit(report_nkro_t* nkro_report, uint8_t code);
 
 void add_key_to_report(uint8_t key);
 void del_key_from_report(uint8_t key);
+/* Temporarily alter the wire report without changing ownership refcounts.
+ * register_code() uses these to emit its deliberate release/re-press when a
+ * second source presses an already-held key. */
+void suppress_key_from_report(uint8_t key);
+void restore_key_to_report(uint8_t key);
 void clear_keys_from_report(void);
 
 #ifdef MOUSE_ENABLE

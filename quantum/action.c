@@ -959,11 +959,17 @@ __attribute__((weak)) void register_code(uint8_t code) {
         // Force a new key press if the key is already pressed
         // without this, keys with the same keycode, but different
         // modifiers will be reported incorrectly, see issue #1708
-        if (is_key_pressed(code)) {
-            del_key(code);
+        const bool retrigger = is_key_pressed(code);
+        if (retrigger) {
+            // Emit the deliberate release without decrementing the ownership
+            // count of the source that already holds this key. add_key() below
+            // then registers the new source, and restore puts the key back on
+            // the wire even though the refcount is now greater than one.
+            suppress_key_from_report(code);
             send_keyboard_report();
         }
         add_key(code);
+        if (retrigger) restore_key_to_report(code);
         send_keyboard_report();
     } else if (IS_MODIFIER_KEYCODE(code)) {
         add_mods(MOD_BIT(code));

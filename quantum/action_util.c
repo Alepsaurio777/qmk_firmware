@@ -26,6 +26,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 extern keymap_config_t keymap_config;
 
 static uint8_t real_mods = 0;
+static uint8_t mod_refcounts[8] = {0};
 static uint8_t weak_mods = 0;
 #ifdef KEY_OVERRIDE_ENABLE
 static uint8_t weak_override_mods = 0;
@@ -359,26 +360,49 @@ uint8_t get_mods(void) {
  * FIXME: needs doc
  */
 void add_mods(uint8_t mods) {
+    for (uint8_t i = 0; i < 8; i++) {
+        if (mods & (1 << i)) {
+            if (mod_refcounts[i] != UINT8_MAX) mod_refcounts[i]++;
+            if (mod_refcounts[i] == 1) {
+                real_mods |= (1 << i);
 #if defined(NKRO_ENABLE) && defined(APDAPTIVE_NKRO_ENABLE)
-    if ((real_mods & mods) != mods) kb_report_changed |= KB_RPT_STD;
+                kb_report_changed |= KB_RPT_STD;
 #endif
-    real_mods |= mods;
+            }
+        }
+    }
 }
 /** \brief del mods
  *
  * FIXME: needs doc
  */
 void del_mods(uint8_t mods) {
+    for (uint8_t i = 0; i < 8; i++) {
+        if (mods & (1 << i)) {
+            if (mod_refcounts[i] > 0) {
+                mod_refcounts[i]--;
+                if (mod_refcounts[i] == 0) {
+                    real_mods &= ~(1 << i);
 #if defined(NKRO_ENABLE) && defined(APDAPTIVE_NKRO_ENABLE)
-    if (real_mods & mods) kb_report_changed |= KB_RPT_STD;
+                    kb_report_changed |= KB_RPT_STD;
 #endif
-    real_mods &= ~mods;
+                }
+            }
+        }
+    }
 }
 /** \brief set mods
  *
  * FIXME: needs doc
  */
 void set_mods(uint8_t mods) {
+    for (uint8_t i = 0; i < 8; i++) {
+        if (mods & (1 << i)) {
+            mod_refcounts[i] = 1;
+        } else {
+            mod_refcounts[i] = 0;
+        }
+    }
 #if defined(NKRO_ENABLE) && defined(APDAPTIVE_NKRO_ENABLE)
     if (real_mods != mods) kb_report_changed |= KB_RPT_STD;
 #endif
@@ -389,6 +413,7 @@ void set_mods(uint8_t mods) {
  * FIXME: needs doc
  */
 void clear_mods(void) {
+    memset(mod_refcounts, 0, sizeof(mod_refcounts));
 #if defined(NKRO_ENABLE) && defined(APDAPTIVE_NKRO_ENABLE)
     if (real_mods) kb_report_changed |= KB_RPT_STD;
 #endif
