@@ -26,16 +26,49 @@ extern volatile uint16_t scan_probe_phase_us;
 // Tamano del endpoint Raw HID de VIA (32 bytes).
 #define TELEMETRY_EPSIZE 32
 
-typedef struct {
-    uint8_t row;
-    uint8_t col;
-} telemetry_key_t;
-
-// Teclas criticas de PvP 1.8.9: W, A, S, D, espacio (fast key), LShift.
-static const telemetry_key_t telemetry_keys[] = {
-    {2, 2}, {3, 1}, {3, 2}, {3, 3}, {5, 6}, {4, 0},
+// Teclas criticas de PvP 1.8.9, declaradas por KEYCODE y no por coordenada
+// (24-jul). El orden fija el indice que el cliente rotula en KEYS[], asi que no
+// reordenar sin tocar tools/telemetry_client.py.
+//
+// Antes era una tabla de {row, col} fija. Eso mentia en cuanto Launcher
+// remapeaba: el stream de travel seguia leyendo el hueco viejo sin avisar. Y con
+// la re-resolucion en caliente, remapear a mitad de sesion es una accion
+// soportada, asi que la mentira era alcanzable de verdad.
+static const uint16_t telemetry_keycodes[] = {
+    KC_W, KC_A, KC_S, KC_D, KC_SPC, KC_LSFT,
 };
-#define TELEMETRY_KEY_COUNT ARRAY_SIZE(telemetry_keys)
+#define TELEMETRY_KEY_COUNT ARRAY_SIZE(telemetry_keycodes)
+
+// Posiciones resueltas (0xFF = ese keycode no esta en la capa base de Gaming).
+static uint8_t telemetry_key_row[TELEMETRY_KEY_COUNT];
+static uint8_t telemetry_key_col[TELEMETRY_KEY_COUNT];
+
+// Se resuelve contra la MISMA capa que la politica del analog matrix
+// (ANALOG_POLICY_LAYER = base de Gaming): las teclas que interesan son las de
+// PvP, y su identidad la da esa capa aunque el stream de travel corra en Win.
+//
+// Barre la matriz leyendo el keymap vivo, asi que corre en boot y tras un remap
+// —nunca en el barrido. La llama keymap.c.
+void telemetry_resolve_keys(void) {
+    for (uint8_t i = 0; i < TELEMETRY_KEY_COUNT; i++) {
+        telemetry_key_row[i] = 0xFF;
+        telemetry_key_col[i] = 0xFF;
+    }
+
+    for (uint8_t row = 0; row < MATRIX_ROWS; row++) {
+        for (uint8_t col = 0; col < MATRIX_COLS; col++) {
+            const keypos_t pos = {.row = row, .col = col};
+            const uint16_t kc  = keymap_key_to_keycode(ANALOG_POLICY_LAYER, pos);
+            if (kc == KC_NO || kc == KC_TRANSPARENT) continue;
+            for (uint8_t i = 0; i < TELEMETRY_KEY_COUNT; i++) {
+                // Primera coincidencia gana: un slot es una posicion.
+                if (kc != telemetry_keycodes[i] || telemetry_key_row[i] != 0xFF) continue;
+                telemetry_key_row[i] = row;
+                telemetry_key_col[i] = col;
+            }
+        }
+    }
+}
 
 static bool     telemetry_active = false;
 static uint16_t last_send        = 0;
@@ -63,8 +96,17 @@ void telemetry_task(void) {
     pkt[5] = TELEMETRY_KEY_COUNT;
 
     for (uint8_t i = 0; i < TELEMETRY_KEY_COUNT; i++) {
-        pkt[6 + i * 2]     = analog_matrix_get_travel(telemetry_keys[i].row, telemetry_keys[i].col);
-        pkt[6 + i * 2 + 1] = analog_matrix_get_key_state(telemetry_keys[i].row, telemetry_keys[i].col) ? 1 : 0;
+        const uint8_t r = telemetry_key_row[i];
+        const uint8_t c = telemetry_key_col[i];
+        // Sin resolver: reportar cero en vez de leer fuera de rango
+        // (analog_matrix_get_travel no valida indices).
+        if (r >= MATRIX_ROWS || c >= MATRIX_COLS) {
+            pkt[6 + i * 2]     = 0;
+            pkt[6 + i * 2 + 1] = 0;
+            continue;
+        }
+        pkt[6 + i * 2]     = analog_matrix_get_travel(r, c);
+        pkt[6 + i * 2 + 1] = analog_matrix_get_key_state(r, c) ? 1 : 0;
     }
 
 #if defined(USB_SOF_TIMING_PROBE)

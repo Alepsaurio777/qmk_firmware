@@ -209,15 +209,13 @@ Minemen/Hypixel; baneado en CS2/ESL), probar en lab primero.
   resuelven en `update_travel_configs()`, o sea en boot, cambio de perfil y giro
   del interruptor. Un **remap en caliente desde Launcher no las recoloca hasta
   uno de esos tres eventos** — gira el interruptor a Win y vuelve, o reinicia.
-- **INCONSISTENCIA CONOCIDA (24-jul)**: `telemetry_keys[]` en `telemetry.c` sigue
-  siendo coordenadas hardcodeadas (`{2,2},{3,1},{3,2},{3,3},{5,6},{4,0}`) — el
-  último resto del patrón que se eliminó del resto del proyecto. El stream de
-  travel y `--plot` leen por esas coordenadas. Ahora que la re-resolución en
-  caliente hace que remapear a mitad de sesión sea una acción soportada, tras un
-  remap **`--policy` mostrará la posición nueva y `--plot` seguirá leyendo la
-  vieja, sin avisar**. Arreglo: resolver esa tabla por keycode en housekeeping,
-  igual que la política. Hasta entonces: no remapear a mitad de una sesión de
-  medición, o reiniciar el cliente después.
+- Las teclas vigiladas por la telemetría también se declaran por keycode
+  (24-jul): era el último resto de coordenadas fijas del proyecto, y con la
+  re-resolución en caliente se habría vuelto alcanzable de verdad (`--policy`
+  mostrando la posición nueva y `--plot` leyendo la vieja, sin avisar). Se
+  resuelven en `keyboard_post_init_user` y tras cada remap, contra
+  `ANALOG_POLICY_LAYER`. Si un keycode no está en la capa base de Gaming, esa
+  tecla reporta travel 0 en vez de leer fuera de rango.
 - La coincidencia de keycode es **exacta**: un `KC_W` envuelto en mod-tap o
   layer-tap no entra en la whitelist. Y si dos posiciones mapean al mismo
   keycode, el release-stretch (que lleva estado por slot) se queda con la

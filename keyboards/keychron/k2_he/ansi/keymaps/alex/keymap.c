@@ -132,16 +132,18 @@ static inline void schedule_profile_rebuild(uint8_t profile_index) {
 // El override vive aqui y no en telemetry.c (donde estaba) para no acoplar la
 // re-resolucion a ALEX_TELEMETRY_ENABLE: apagar los diagnosticos no debe
 // apagar esto en silencio.
-#if ANALOG_POLICY_NEEDED
-static bool pending_policy_resolve = false;
-#endif
+// Un solo flag para "el keymap cambio", con dos consumidores: las whitelists del
+// analog matrix (solo lab) y las teclas vigiladas de la telemetria (ambos
+// binarios). No se guarda tras ANALOG_POLICY_NEEDED porque la telemetria vive en
+// los dos builds y tambien resuelve por keycode.
+static bool pending_keymap_resolve = false;
 
 void kc_raw_hid_rx_user(uint8_t src, uint8_t *data, uint8_t length) {
-#if ANALOG_POLICY_NEEDED && defined(VIA_ENABLE)
-    // Diferido a housekeeping: aqui estamos en el callback de USB y la
-    // resolucion barre la matriz entera leyendo el keymap dinamico.
+#ifdef VIA_ENABLE
+    // Diferido a housekeeping: aqui estamos en el callback de USB y resolver
+    // barre la matriz entera leyendo el keymap dinamico.
     if (length >= 1 && (data[0] == id_dynamic_keymap_set_keycode || data[0] == id_dynamic_keymap_set_buffer)) {
-        pending_policy_resolve = true;
+        pending_keymap_resolve = true;
     }
 #endif
 
@@ -164,21 +166,32 @@ layer_state_t default_layer_state_set_user(layer_state_t state) {
     return state;
 }
 
+void keyboard_post_init_user(void) {
+#ifdef ALEX_TELEMETRY_ENABLE
+    // Primera resolucion de las teclas vigiladas. Corre despues de via_init()
+    // (que valida o resetea el keymap dinamico), asi que el keymap ya es fiable.
+    // La politica del analog matrix no necesita esto: ya se resuelve en su
+    // update_travel_configs() de matrix_init_custom, tambien post via_init.
+    telemetry_resolve_keys();
+#endif
+}
+
 void housekeeping_task_user(void) {
 #ifdef ALEX_TELEMETRY_ENABLE
     telemetry_task();
     evlog_task();
 #endif
 
-#if ANALOG_POLICY_NEEDED
-    // Remap desde Launcher: recolocar las whitelists por keycode. Se hace antes
-    // del rebuild de perfil de abajo porque ese ya llama a la resolucion, y asi
-    // no la corremos dos veces en el mismo tick de housekeeping.
-    if (pending_policy_resolve) {
-        pending_policy_resolve = false;
+    // Remap desde Launcher: recolocar todo lo que se declara por keycode.
+    if (pending_keymap_resolve) {
+        pending_keymap_resolve = false;
+#ifdef ALEX_TELEMETRY_ENABLE
+        telemetry_resolve_keys();
+#endif
+        // El rebuild de perfil de abajo ya llama a la resolucion de la politica,
+        // asi que no la repetimos en el mismo tick de housekeeping.
         if (!pending_profile_rebuild) analog_matrix_resolve_policy_keys();
     }
-#endif
 
     if (!pending_profile_rebuild) return;
 

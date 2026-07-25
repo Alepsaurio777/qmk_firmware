@@ -22,3 +22,8 @@ void evlog_record_event(uint16_t keycode, bool pressed, uint8_t row, uint8_t col
 // si: ese tiene que existir con o sin telemetria, porque tambien dispara la
 // re-resolucion de la politica por keycode cuando Launcher remapea.
 void telemetry_raw_hid_rx(uint8_t src, uint8_t *data, uint8_t length);
+
+// Resuelve las teclas vigiladas (declaradas por keycode) a posiciones de matriz
+// leyendo el keymap vivo. Hay que llamarla en boot y tras cada remap; keymap.c lo
+// hace en los mismos dos puntos que la politica del analog matrix.
+void telemetry_resolve_keys(void);

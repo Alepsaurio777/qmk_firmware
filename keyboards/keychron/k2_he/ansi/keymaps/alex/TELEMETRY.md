@@ -51,6 +51,13 @@ Orden de teclas: W, A, S, D, espacio, LShift (definido en `telemetry.c`).
 Cadencia: un paquete cada 5 ms (200 Hz) desde `housekeeping_task_user` — fuera
 del hot path de escaneo; el scan no se toca.
 
+Las teclas se declaran por **keycode**, no por coordenada (24-jul), y se
+resuelven a posiciones de matriz contra `ANALOG_POLICY_LAYER` en
+`keyboard_post_init_user` y tras cada remap desde Launcher. Antes era una tabla
+`{row, col}` fija que mentía en silencio en cuanto remapeabas: el stream seguía
+leyendo el hueco viejo. Una tecla cuyo keycode no esté en la capa base de Gaming
+reporta travel 0, en vez de leer fuera de rango.
+
 ## Qué mirar (protocolo de medición)
 
 1. **Ruido en reposo**: 30 s sin tocar → pico-a-pico por tecla. Anotar.
