@@ -25,41 +25,40 @@ static int32_t rt_bottom_guard(const analog_key_t *k) {
     return bottom_guard < 0 ? 0 : bottom_guard;
 }
 
-static inline bool rt_continuous_key_matches(const analog_key_t *key, uint8_t row, uint8_t col) {
-    return row != 0xFF && col != 0xFF && key->r == row && key->c == col;
-}
-
 static inline bool rt_continuous_enabled(const analog_key_t *key) {
 #if ANALOG_CONTINUOUS_RAPID_TRIGGER_IN_GAMING_MODE
-    return analog_matrix_is_gaming_mode() &&
-           (rt_continuous_key_matches(key, ANALOG_CONTINUOUS_RT_KEY1_ROW, ANALOG_CONTINUOUS_RT_KEY1_COL) ||
-            rt_continuous_key_matches(key, ANALOG_CONTINUOUS_RT_KEY2_ROW, ANALOG_CONTINUOUS_RT_KEY2_COL));
+    return analog_matrix_is_gaming_mode() && analog_policy_bit(analog_continuous_rt_mask, key->r, key->c);
 #else
     (void)key;
     return false;
 #endif
 }
 
-// F7: indice 0..5 de la tecla en la whitelist predictiva (KEY1..KEY6), o -1 si
-// no esta o la prediccion no aplica. Las mascaras PRESS/REPRESS (bit i = KEYi+1,
-// ver analog_matrix.h) eligen por separado que camino de la FSM puede predecir
-// para cada tecla: adelantar el re-press acorta la ventana OFF que el tick de
-// 50 ms de MC debe muestrear, asi que re-press y primer press son decisiones
-// distintas por mecanica.
-static inline int8_t rt_predictive_key_index(const analog_key_t *key) {
+// F7: las mascaras PRESS/REPRESS por slot ya vienen plegadas en los bitmaps que
+// resuelve analog_matrix_resolve_policy_keys(), asi que aqui solo queda un test
+// de bit. Siguen siendo dos preguntas distintas: adelantar el re-press acorta la
+// ventana OFF que el tick de 50 ms de MC debe muestrear, asi que una tecla puede
+// querer prediccion en el primer press y no en el re-press.
+//
+// El chequeo de modo Gaming se mantiene en runtime a proposito: los bitmaps se
+// resuelven en el rebuild de configs y confiar solo en eso dejaria la politica
+// filtrandose a modo Windows si algun dia se perdiera un rebuild.
+static inline bool rt_predictive_press_enabled(const analog_key_t *key) {
 #if ANALOG_PREDICTIVE_ACTUATION_IN_GAMING_MODE
-    if (analog_matrix_is_gaming_mode()) {
-        if (rt_continuous_key_matches(key, ANALOG_PREDICTIVE_RT_KEY1_ROW, ANALOG_PREDICTIVE_RT_KEY1_COL)) return 0;
-        if (rt_continuous_key_matches(key, ANALOG_PREDICTIVE_RT_KEY2_ROW, ANALOG_PREDICTIVE_RT_KEY2_COL)) return 1;
-        if (rt_continuous_key_matches(key, ANALOG_PREDICTIVE_RT_KEY3_ROW, ANALOG_PREDICTIVE_RT_KEY3_COL)) return 2;
-        if (rt_continuous_key_matches(key, ANALOG_PREDICTIVE_RT_KEY4_ROW, ANALOG_PREDICTIVE_RT_KEY4_COL)) return 3;
-        if (rt_continuous_key_matches(key, ANALOG_PREDICTIVE_RT_KEY5_ROW, ANALOG_PREDICTIVE_RT_KEY5_COL)) return 4;
-        if (rt_continuous_key_matches(key, ANALOG_PREDICTIVE_RT_KEY6_ROW, ANALOG_PREDICTIVE_RT_KEY6_COL)) return 5;
-    }
+    return analog_matrix_is_gaming_mode() && analog_policy_bit(analog_predictive_press_mask, key->r, key->c);
 #else
     (void)key;
+    return false;
 #endif
-    return -1;
+}
+
+static inline bool rt_predictive_repress_enabled(const analog_key_t *key) {
+#if ANALOG_PREDICTIVE_ACTUATION_IN_GAMING_MODE
+    return analog_matrix_is_gaming_mode() && analog_policy_bit(analog_predictive_repress_mask, key->r, key->c);
+#else
+    (void)key;
+    return false;
+#endif
 }
 
 static inline bool rt_predictive_downstroke_ready(const analog_key_t *key, bool predictive_rt, uint8_t target) {
@@ -133,9 +132,8 @@ bool rapid_trigger_action(analog_key_t *key) {
     bool   changed            = false;
     int8_t update_rapid_pts   = 0;
     bool   continuous_rt      = rt_continuous_enabled(key);
-    const int8_t pred_idx     = rt_predictive_key_index(key);
-    bool   predictive_press   = pred_idx >= 0 && ((ANALOG_PREDICTIVE_PRESS_KEY_MASK >> pred_idx) & 1);
-    bool   predictive_repress = pred_idx >= 0 && ((ANALOG_PREDICTIVE_REPRESS_KEY_MASK >> pred_idx) & 1);
+    bool   predictive_press   = rt_predictive_press_enabled(key);
+    bool   predictive_repress = rt_predictive_repress_enabled(key);
 
     switch (key->state) {
         case AKS_REGULAR_RELEASED:

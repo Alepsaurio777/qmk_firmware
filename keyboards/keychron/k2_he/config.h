@@ -112,10 +112,11 @@
 // analog_matrix.h sobre STATIC_HYSTERESIS_GAMING_FAST_KEY).
 #define STATIC_HYSTERESIS_GAMING 5
 #define ANALOG_ADAPTIVE_SHALLOW_HYSTERESIS_GAMING 1
-#define ANALOG_CONTINUOUS_RT_KEY1_ROW 5
-#define ANALOG_CONTINUOUS_RT_KEY1_COL 6
-#define ANALOG_CONTINUOUS_RT_KEY2_ROW 4
-#define ANALOG_CONTINUOUS_RT_KEY2_COL 0
+// Whitelists por KEYCODE, no por coordenada (24-jul): la politica sigue a la
+// tecla si Launcher la remapea. Slots 1 y 2 = espacio y LShift; el RT
+// predictivo los hereda como sus slots 1 y 2 (bits 0 y 1 de las mascaras F7).
+#define ANALOG_CONTINUOUS_RT_KEY1_KEYCODE KC_SPACE
+#define ANALOG_CONTINUOUS_RT_KEY2_KEYCODE KC_LEFT_SHIFT
 #define STATIC_HYSTERESIS_TYPING 5
 #define ANALOG_RAW_NOISE_FILTER_GAMING 5
 #define ANALOG_RAW_NOISE_FILTER_TYPING 5
@@ -157,31 +158,27 @@
 #define ANALOG_CONTINUOUS_RT_REPRESS_MAX_TRAVEL 240
 // Toggles de prediccion controlados por keymap (alex = off, alex_lab = on).
 // No se fuerzan aqui: analog_matrix.h los deja en 0 por defecto y el config.h
-// del keymap los sube a 1 si aplica. Las coordenadas/parametros de abajo son
+// del keymap los sube a 1 si aplica. Los keycodes/parametros de abajo son
 // compartidos e inertes cuando la prediccion esta apagada.
 #define ANALOG_PREDICTIVE_ACTUATION_ADVANCE TRAVEL_SCALE
 #define ANALOG_PREDICTIVE_ACTUATION_MIN_DELTA TRAVEL_SCALE
-#define ANALOG_PREDICTIVE_RT_KEY3_ROW 2 // W
-#define ANALOG_PREDICTIVE_RT_KEY3_COL 2
-#define ANALOG_PREDICTIVE_RT_KEY4_ROW 3 // A
-#define ANALOG_PREDICTIVE_RT_KEY4_COL 1
-#define ANALOG_PREDICTIVE_RT_KEY5_ROW 3 // S
-#define ANALOG_PREDICTIVE_RT_KEY5_COL 2
-#define ANALOG_PREDICTIVE_RT_KEY6_ROW 3 // D
-#define ANALOG_PREDICTIVE_RT_KEY6_COL 3
+// Slots 3..6 (bits 2..5 de las mascaras F7). Los slots 1 y 2 (espacio, LShift)
+// se heredan de ANALOG_CONTINUOUS_RT_KEY1/2_KEYCODE.
+#define ANALOG_PREDICTIVE_RT_KEY3_KEYCODE KC_W
+#define ANALOG_PREDICTIVE_RT_KEY4_KEYCODE KC_A
+#define ANALOG_PREDICTIVE_RT_KEY5_KEYCODE KC_S
+#define ANALOG_PREDICTIVE_RT_KEY6_KEYCODE KC_D
 // (19-jul) ANALOG_PREDICTIVE_REGULAR_* eliminado entero (flag+coords+matcher+
 // force-mode): nunca se encendio y el criterio #4 mata su unico caso de uso.
 
-// F6 (lab): release-stretch anclado al tick de MC (50 ms). Coordenadas
-// compartidas e inertes con el flag apagado (default en analog_matrix.h);
+// F6 (lab): release-stretch anclado al tick de MC (50 ms). Keycodes
+// compartidos e inertes con el flag apagado (default en analog_matrix.h);
 // alex_lab lo enciende. Solo W y espacio: son las dos teclas cuyo release
 // DEBE ser visto por el muestreo por tick (sprint-reset / reset de jumpTicks).
 // Nunca A/D (forzaria ~55 ms de neutral en cada cambio de strafe) ni LShift
 // (un unshift no visto al bridgear es un fallo seguro, no un bug).
-#define ANALOG_RELEASE_STRETCH_KEY1_ROW 2 // W
-#define ANALOG_RELEASE_STRETCH_KEY1_COL 2
-#define ANALOG_RELEASE_STRETCH_KEY2_ROW 5 // espacio
-#define ANALOG_RELEASE_STRETCH_KEY2_COL 6
+#define ANALOG_RELEASE_STRETCH_KEY1_KEYCODE KC_W
+#define ANALOG_RELEASE_STRETCH_KEY2_KEYCODE KC_SPACE
 
 // Tap-hold configurations to make spacebar/other keys feel responsive if mapped as layer-taps or mod-taps
 #define TAPPING_TERM 175

@@ -77,20 +77,40 @@
 // partir de 0.6 mm, o sea: se despertaban al mover un slider en Launcher sin
 // que nada lo indicase. La histeresis de Gaming es ahora uniforme.
 
-#ifndef ANALOG_CONTINUOUS_RT_KEY1_ROW
-#    define ANALOG_CONTINUOUS_RT_KEY1_ROW 0xFF
+// ----- Politica por tecla: se declara por KEYCODE, no por coordenada -------
+// (24-jul) Las whitelists de continuous RT, RT predictivo y release-stretch
+// describen MECANICA de juego ("la tecla de sprint", "la de salto"), no una
+// posicion fisica. Declararlas por fila/columna las rompia en silencio en
+// cuanto Launcher remapeaba una tecla: la politica se quedaba en el hueco
+// viejo. Ahora se declaran por keycode y se resuelven contra el keymap VIVO
+// (el de VIA/Launcher en EEPROM, no los defaults de PROGMEM) en
+// analog_matrix_resolve_policy_keys(), llamada desde update_travel_configs().
+//
+// Reglas de la resolucion:
+//  - Coincidencia EXACTA del keycode. Un KC_W envuelto en mod-tap/layer-tap no
+//    coincide: es otra tecla a efectos de la politica.
+//  - Si dos posiciones mapean al mismo keycode, las mascaras (sin estado) las
+//    marcan a las dos; el release-stretch, que lleva estado por slot, se queda
+//    con la PRIMERA en orden de barrido.
+//  - Si el MISMO keycode se declara en dos slots predictivos, sus bits F7 se
+//    combinan con OR. El codigo por coordenadas se quedaba con el primer slot;
+//    con un keycode por slot (el caso de hoy) da igual, pero no es identico.
+//  - KC_NO desactiva el slot.
+//
+// Orden de arranque (verificado en quantum/keyboard.c): via_init() corre ANTES
+// de matrix_init() -> matrix_init_custom() -> analog_matrix_init(), asi que el
+// keymap dinamico ya esta validado (o reseteado a los defaults de PROGMEM si la
+// EEPROM venia en blanco) cuando se resuelve por primera vez.
+#ifndef ANALOG_POLICY_LAYER
+#    define ANALOG_POLICY_LAYER 0
 #endif
 
-#ifndef ANALOG_CONTINUOUS_RT_KEY1_COL
-#    define ANALOG_CONTINUOUS_RT_KEY1_COL 0xFF
+#ifndef ANALOG_CONTINUOUS_RT_KEY1_KEYCODE
+#    define ANALOG_CONTINUOUS_RT_KEY1_KEYCODE KC_NO
 #endif
 
-#ifndef ANALOG_CONTINUOUS_RT_KEY2_ROW
-#    define ANALOG_CONTINUOUS_RT_KEY2_ROW 0xFF
-#endif
-
-#ifndef ANALOG_CONTINUOUS_RT_KEY2_COL
-#    define ANALOG_CONTINUOUS_RT_KEY2_COL 0xFF
+#ifndef ANALOG_CONTINUOUS_RT_KEY2_KEYCODE
+#    define ANALOG_CONTINUOUS_RT_KEY2_KEYCODE KC_NO
 #endif
 
 #ifndef MIN_ACTUATION
@@ -218,52 +238,31 @@ static inline bool analog_matrix_is_gaming_mode(void) {
 // default_profiles[] (tabla de reset, que Launcher puede pisar), no a un
 // override que corre en cada boot.
 
-#ifndef ANALOG_PREDICTIVE_RT_KEY1_ROW
-#    define ANALOG_PREDICTIVE_RT_KEY1_ROW ANALOG_CONTINUOUS_RT_KEY1_ROW
+// Slots 1..6 del RT predictivo. El indice de slot es lo que direccionan las
+// mascaras F7 de abajo (bit i = KEY(i+1)), asi que el ORDEN importa: no
+// reordenar sin recalcular ANALOG_PREDICTIVE_{PRESS,REPRESS}_KEY_MASK.
+#ifndef ANALOG_PREDICTIVE_RT_KEY1_KEYCODE
+#    define ANALOG_PREDICTIVE_RT_KEY1_KEYCODE ANALOG_CONTINUOUS_RT_KEY1_KEYCODE
 #endif
 
-#ifndef ANALOG_PREDICTIVE_RT_KEY1_COL
-#    define ANALOG_PREDICTIVE_RT_KEY1_COL ANALOG_CONTINUOUS_RT_KEY1_COL
+#ifndef ANALOG_PREDICTIVE_RT_KEY2_KEYCODE
+#    define ANALOG_PREDICTIVE_RT_KEY2_KEYCODE ANALOG_CONTINUOUS_RT_KEY2_KEYCODE
 #endif
 
-#ifndef ANALOG_PREDICTIVE_RT_KEY2_ROW
-#    define ANALOG_PREDICTIVE_RT_KEY2_ROW ANALOG_CONTINUOUS_RT_KEY2_ROW
+#ifndef ANALOG_PREDICTIVE_RT_KEY3_KEYCODE
+#    define ANALOG_PREDICTIVE_RT_KEY3_KEYCODE KC_NO
 #endif
 
-#ifndef ANALOG_PREDICTIVE_RT_KEY2_COL
-#    define ANALOG_PREDICTIVE_RT_KEY2_COL ANALOG_CONTINUOUS_RT_KEY2_COL
+#ifndef ANALOG_PREDICTIVE_RT_KEY4_KEYCODE
+#    define ANALOG_PREDICTIVE_RT_KEY4_KEYCODE KC_NO
 #endif
 
-#ifndef ANALOG_PREDICTIVE_RT_KEY3_ROW
-#    define ANALOG_PREDICTIVE_RT_KEY3_ROW 0xFF
+#ifndef ANALOG_PREDICTIVE_RT_KEY5_KEYCODE
+#    define ANALOG_PREDICTIVE_RT_KEY5_KEYCODE KC_NO
 #endif
 
-#ifndef ANALOG_PREDICTIVE_RT_KEY3_COL
-#    define ANALOG_PREDICTIVE_RT_KEY3_COL 0xFF
-#endif
-
-#ifndef ANALOG_PREDICTIVE_RT_KEY4_ROW
-#    define ANALOG_PREDICTIVE_RT_KEY4_ROW 0xFF
-#endif
-
-#ifndef ANALOG_PREDICTIVE_RT_KEY4_COL
-#    define ANALOG_PREDICTIVE_RT_KEY4_COL 0xFF
-#endif
-
-#ifndef ANALOG_PREDICTIVE_RT_KEY5_ROW
-#    define ANALOG_PREDICTIVE_RT_KEY5_ROW 0xFF
-#endif
-
-#ifndef ANALOG_PREDICTIVE_RT_KEY5_COL
-#    define ANALOG_PREDICTIVE_RT_KEY5_COL 0xFF
-#endif
-
-#ifndef ANALOG_PREDICTIVE_RT_KEY6_ROW
-#    define ANALOG_PREDICTIVE_RT_KEY6_ROW 0xFF
-#endif
-
-#ifndef ANALOG_PREDICTIVE_RT_KEY6_COL
-#    define ANALOG_PREDICTIVE_RT_KEY6_COL 0xFF
+#ifndef ANALOG_PREDICTIVE_RT_KEY6_KEYCODE
+#    define ANALOG_PREDICTIVE_RT_KEY6_KEYCODE KC_NO
 #endif
 
 #ifndef ANALOG_PREDICTIVE_ACTUATION_ADVANCE
@@ -347,40 +346,44 @@ static inline bool analog_matrix_is_gaming_mode(void) {
 #    define ANALOG_RELEASE_STRETCH_MS 55
 #endif
 
-#ifndef ANALOG_RELEASE_STRETCH_KEY1_ROW
-#    define ANALOG_RELEASE_STRETCH_KEY1_ROW 0xFF
+#ifndef ANALOG_RELEASE_STRETCH_KEY1_KEYCODE
+#    define ANALOG_RELEASE_STRETCH_KEY1_KEYCODE KC_NO
 #endif
 
-#ifndef ANALOG_RELEASE_STRETCH_KEY1_COL
-#    define ANALOG_RELEASE_STRETCH_KEY1_COL 0xFF
+#ifndef ANALOG_RELEASE_STRETCH_KEY2_KEYCODE
+#    define ANALOG_RELEASE_STRETCH_KEY2_KEYCODE KC_NO
 #endif
 
-#ifndef ANALOG_RELEASE_STRETCH_KEY2_ROW
-#    define ANALOG_RELEASE_STRETCH_KEY2_ROW 0xFF
-#endif
+// ----- Politica resuelta: un bitmap por fila --------------------------------
+// analog_matrix_resolve_policy_keys() traduce los keycodes de arriba a
+// posiciones de matriz leyendo el keymap vivo, y pliega aqui las mascaras F7.
+// El hot path solo hace un test de bit y ya no sabe nada de slots ni de
+// keycodes. ANALOG_POLICY_NEEDED es 0 en el binario de torneo, asi que todo
+// esto (incluido el barrido de resolucion) se compila fuera.
+#define ANALOG_POLICY_NEEDED (ANALOG_CONTINUOUS_RAPID_TRIGGER_IN_GAMING_MODE || ANALOG_PREDICTIVE_ACTUATION_IN_GAMING_MODE || ANALOG_RELEASE_STRETCH_IN_GAMING_MODE)
 
-#ifndef ANALOG_RELEASE_STRETCH_KEY2_COL
-#    define ANALOG_RELEASE_STRETCH_KEY2_COL 0xFF
-#endif
+#if ANALOG_POLICY_NEEDED
+void analog_matrix_resolve_policy_keys(void);
 
-#define ANALOG_COORD_DISABLED(row, col) ((row) == 0xFF && (col) == 0xFF)
-#define ANALOG_COORD_IN_MATRIX(row, col) ((row) < MATRIX_ROWS && (col) < MATRIX_COLS)
-#define ANALOG_COORD_VALID(row, col) (ANALOG_COORD_DISABLED(row, col) || ANALOG_COORD_IN_MATRIX(row, col))
-
-static inline bool analog_matrix_coord_matches(uint8_t row, uint8_t col, uint8_t cfg_row, uint8_t cfg_col) {
-    return cfg_row != 0xFF && cfg_col != 0xFF && row == cfg_row && col == cfg_col;
+static inline bool analog_policy_bit(const matrix_row_t *mask, uint8_t row, uint8_t col) {
+    if (row >= MATRIX_ROWS || col >= MATRIX_COLS) return false;
+    return (mask[row] & ((matrix_row_t)1 << col)) != 0;
 }
+#else
+// Passthrough textual: coste cero cuando no hay ninguna politica encendida.
+#    define analog_matrix_resolve_policy_keys() ((void)0)
+#endif
 
-STATIC_ASSERT(ANALOG_COORD_VALID(ANALOG_CONTINUOUS_RT_KEY1_ROW, ANALOG_CONTINUOUS_RT_KEY1_COL), "ANALOG_CONTINUOUS_RT_KEY1 must be disabled or inside the matrix");
-STATIC_ASSERT(ANALOG_COORD_VALID(ANALOG_CONTINUOUS_RT_KEY2_ROW, ANALOG_CONTINUOUS_RT_KEY2_COL), "ANALOG_CONTINUOUS_RT_KEY2 must be disabled or inside the matrix");
-STATIC_ASSERT(ANALOG_COORD_VALID(ANALOG_PREDICTIVE_RT_KEY1_ROW, ANALOG_PREDICTIVE_RT_KEY1_COL), "ANALOG_PREDICTIVE_RT_KEY1 must be disabled or inside the matrix");
-STATIC_ASSERT(ANALOG_COORD_VALID(ANALOG_PREDICTIVE_RT_KEY2_ROW, ANALOG_PREDICTIVE_RT_KEY2_COL), "ANALOG_PREDICTIVE_RT_KEY2 must be disabled or inside the matrix");
-STATIC_ASSERT(ANALOG_COORD_VALID(ANALOG_PREDICTIVE_RT_KEY3_ROW, ANALOG_PREDICTIVE_RT_KEY3_COL), "ANALOG_PREDICTIVE_RT_KEY3 must be disabled or inside the matrix");
-STATIC_ASSERT(ANALOG_COORD_VALID(ANALOG_PREDICTIVE_RT_KEY4_ROW, ANALOG_PREDICTIVE_RT_KEY4_COL), "ANALOG_PREDICTIVE_RT_KEY4 must be disabled or inside the matrix");
-STATIC_ASSERT(ANALOG_COORD_VALID(ANALOG_PREDICTIVE_RT_KEY5_ROW, ANALOG_PREDICTIVE_RT_KEY5_COL), "ANALOG_PREDICTIVE_RT_KEY5 must be disabled or inside the matrix");
-STATIC_ASSERT(ANALOG_COORD_VALID(ANALOG_PREDICTIVE_RT_KEY6_ROW, ANALOG_PREDICTIVE_RT_KEY6_COL), "ANALOG_PREDICTIVE_RT_KEY6 must be disabled or inside the matrix");
-STATIC_ASSERT(ANALOG_COORD_VALID(ANALOG_RELEASE_STRETCH_KEY1_ROW, ANALOG_RELEASE_STRETCH_KEY1_COL), "ANALOG_RELEASE_STRETCH_KEY1 must be disabled or inside the matrix");
-STATIC_ASSERT(ANALOG_COORD_VALID(ANALOG_RELEASE_STRETCH_KEY2_ROW, ANALOG_RELEASE_STRETCH_KEY2_COL), "ANALOG_RELEASE_STRETCH_KEY2 must be disabled or inside the matrix");
+#if ANALOG_CONTINUOUS_RAPID_TRIGGER_IN_GAMING_MODE
+extern matrix_row_t analog_continuous_rt_mask[MATRIX_ROWS];
+#endif
+
+#if ANALOG_PREDICTIVE_ACTUATION_IN_GAMING_MODE
+extern matrix_row_t analog_predictive_press_mask[MATRIX_ROWS];
+extern matrix_row_t analog_predictive_repress_mask[MATRIX_ROWS];
+#endif
+
+STATIC_ASSERT(MATRIX_COLS <= (int)(sizeof(matrix_row_t) * 8), "Los bitmaps de politica necesitan un bit por columna en matrix_row_t");
 STATIC_ASSERT(ANALOG_CONTINUOUS_RT_REPRESS_MAX_TRAVEL <= ((FULL_TRAVEL_UNIT + 1) * TRAVEL_SCALE - 1), "ANALOG_CONTINUOUS_RT_REPRESS_MAX_TRAVEL cannot exceed max travel");
 
 // Threshold value when the magnet switch is not installed

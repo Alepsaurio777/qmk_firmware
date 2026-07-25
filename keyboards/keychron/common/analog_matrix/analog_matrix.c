@@ -372,6 +372,11 @@ void update_travel_configs(void) {
             update_key_config(r, c);
         }
     }
+
+    // Las whitelists por keycode (continuous RT, RT predictivo, release-stretch)
+    // se recolocan aqui: es el unico punto que ya corre en boot, cambio de
+    // perfil y cambio de modo. No-op textual si ninguna esta compilada.
+    analog_matrix_resolve_policy_keys();
 }
 
 static void update_default_travel(void) {
@@ -1072,9 +1077,16 @@ typedef struct {
 
 static release_stretch_t release_stretch[2];
 
+// Posicion resuelta de cada slot (0xFF = slot apagado o keycode no encontrado).
+// La rellena analog_matrix_resolve_policy_keys() desde el keymap vivo.
+static uint8_t release_stretch_row[2] = {0xFF, 0xFF};
+static uint8_t release_stretch_col[2] = {0xFF, 0xFF};
+
 static inline int8_t release_stretch_slot(uint8_t row, uint8_t col) {
-    if (analog_matrix_coord_matches(row, col, ANALOG_RELEASE_STRETCH_KEY1_ROW, ANALOG_RELEASE_STRETCH_KEY1_COL)) return 0;
-    if (analog_matrix_coord_matches(row, col, ANALOG_RELEASE_STRETCH_KEY2_ROW, ANALOG_RELEASE_STRETCH_KEY2_COL)) return 1;
+    // 0xFF nunca es una fila valida, asi que un slot apagado no coincide nunca.
+    for (uint8_t i = 0; i < 2; i++) {
+        if (release_stretch_row[i] == row && release_stretch_col[i] == col) return (int8_t)i;
+    }
     return -1;
 }
 
@@ -1106,6 +1118,88 @@ bool analog_matrix_release_stretch_apply(uint8_t row, uint8_t col, bool pressed)
     }
 
     return pressed;
+}
+#endif
+
+#if ANALOG_POLICY_NEEDED
+#    if ANALOG_CONTINUOUS_RAPID_TRIGGER_IN_GAMING_MODE
+matrix_row_t analog_continuous_rt_mask[MATRIX_ROWS];
+#    endif
+#    if ANALOG_PREDICTIVE_ACTUATION_IN_GAMING_MODE
+matrix_row_t analog_predictive_press_mask[MATRIX_ROWS];
+matrix_row_t analog_predictive_repress_mask[MATRIX_ROWS];
+
+// El orden fija el bit de slot que direccionan las mascaras F7 (bit i = KEYi+1).
+static const uint16_t predictive_rt_keycodes[6] = {
+    ANALOG_PREDICTIVE_RT_KEY1_KEYCODE, ANALOG_PREDICTIVE_RT_KEY2_KEYCODE, ANALOG_PREDICTIVE_RT_KEY3_KEYCODE,
+    ANALOG_PREDICTIVE_RT_KEY4_KEYCODE, ANALOG_PREDICTIVE_RT_KEY5_KEYCODE, ANALOG_PREDICTIVE_RT_KEY6_KEYCODE,
+};
+#    endif
+
+// Traduce las whitelists declaradas por keycode a posiciones de matriz, leyendo
+// el keymap VIVO: keymap_key_to_keycode() cae en keycode_at_keymap_location(),
+// que con VIA/Launcher habilitado lee el keymap dinamico de la EEPROM en vez de
+// los defaults de PROGMEM. Asi un remap desde Launcher se lleva la politica con
+// la tecla en vez de dejarla en el hueco viejo.
+//
+// Corre en update_travel_configs() — o sea en boot, cambio de perfil y giro del
+// interruptor (via housekeeping del keymap), nunca en el barrido. Un remap en
+// caliente desde Launcher NO la dispara: la politica se recoloca en el siguiente
+// de esos tres eventos.
+void analog_matrix_resolve_policy_keys(void) {
+#    if ANALOG_CONTINUOUS_RAPID_TRIGGER_IN_GAMING_MODE
+    memset(analog_continuous_rt_mask, 0, sizeof(analog_continuous_rt_mask));
+#    endif
+#    if ANALOG_PREDICTIVE_ACTUATION_IN_GAMING_MODE
+    memset(analog_predictive_press_mask, 0, sizeof(analog_predictive_press_mask));
+    memset(analog_predictive_repress_mask, 0, sizeof(analog_predictive_repress_mask));
+#    endif
+#    if ANALOG_RELEASE_STRETCH_IN_GAMING_MODE
+    // Reresolver invalida cualquier ventana OFF a medias: sus coordenadas pueden
+    // haber cambiado, y un deadline heredado suprimiria un press en otra tecla.
+    memset(release_stretch, 0, sizeof(release_stretch));
+    for (uint8_t i = 0; i < 2; i++) {
+        release_stretch_row[i] = 0xFF;
+        release_stretch_col[i] = 0xFF;
+    }
+    const uint16_t stretch_keycodes[2] = {ANALOG_RELEASE_STRETCH_KEY1_KEYCODE, ANALOG_RELEASE_STRETCH_KEY2_KEYCODE};
+#    endif
+
+    for (uint8_t row = 0; row < MATRIX_ROWS; row++) {
+        for (uint8_t col = 0; col < MATRIX_COLS; col++) {
+            const keypos_t pos = {.row = row, .col = col};
+            const uint16_t kc  = keymap_key_to_keycode(ANALOG_POLICY_LAYER, pos);
+            if (kc == KC_NO || kc == KC_TRANSPARENT) continue;
+
+            const matrix_row_t bit = (matrix_row_t)1 << col;
+
+#    if ANALOG_CONTINUOUS_RAPID_TRIGGER_IN_GAMING_MODE
+            if (kc == ANALOG_CONTINUOUS_RT_KEY1_KEYCODE || kc == ANALOG_CONTINUOUS_RT_KEY2_KEYCODE) {
+                analog_continuous_rt_mask[row] |= bit;
+            }
+#    endif
+
+#    if ANALOG_PREDICTIVE_ACTUATION_IN_GAMING_MODE
+            for (uint8_t slot = 0; slot < 6; slot++) {
+                if (predictive_rt_keycodes[slot] == KC_NO || kc != predictive_rt_keycodes[slot]) continue;
+                if ((ANALOG_PREDICTIVE_PRESS_KEY_MASK >> slot) & 1) analog_predictive_press_mask[row] |= bit;
+                if ((ANALOG_PREDICTIVE_REPRESS_KEY_MASK >> slot) & 1) analog_predictive_repress_mask[row] |= bit;
+            }
+#    endif
+
+#    if ANALOG_RELEASE_STRETCH_IN_GAMING_MODE
+            for (uint8_t i = 0; i < 2; i++) {
+                // Primera coincidencia gana: el estado del stretch es por slot,
+                // asi que dos posiciones con el mismo keycode no pueden
+                // compartirlo sin pisarse la ventana OFF.
+                if (stretch_keycodes[i] == KC_NO || kc != stretch_keycodes[i]) continue;
+                if (release_stretch_row[i] != 0xFF) continue;
+                release_stretch_row[i] = row;
+                release_stretch_col[i] = col;
+            }
+#    endif
+        }
+    }
 }
 #endif
 

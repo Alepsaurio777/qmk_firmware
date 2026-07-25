@@ -113,6 +113,13 @@ Validado el 13-jul: fase estable *incluso con teclas activas y RT disparando*.
 - [ ] F7: verificar que S/W ya no predicen (prensa rápida superficial no
       dispara antes del cruce físico) y que SPC (solo primer press) y A/D
       siguen prediciendo
+- [ ] Verificar en hardware la resolución por keycode (24-jul): remapear W a
+      otra posición desde Launcher, girar el interruptor a Win y volver, y
+      confirmar con el evlog que el release-stretch y la predicción siguen a la
+      tecla nueva y NO se quedan en la vieja. Cross-check estático ya hecho: los
+      6 keycodes resuelven a las mismas coordenadas que estaban hardcodeadas
+      (W 2,2 · A 3,1 · S 3,2 · D 3,3 · SPC 5,6 · LSFT 4,0), así que con el
+      keymap de fábrica el comportamiento es idéntico al de antes.
 - [ ] Config Launcher sin firmware: hotbar 1-5 actuación 1.2-1.5 mm ·
       segundo par SOCD W/S para s-taps (opcional, probar en lab)
 - [ ] Launcher: verificar qué tipo SOCD tiene el par A/D — con DEEPER_TRAVEL
@@ -164,8 +171,18 @@ Minemen/Hypixel; baneado en CS2/ESL), probar en lab primero.
   con valores de Launcher siempre gana.
 - Bottom-out aprendido nunca se encoge: si se cambia un switch por otro de
   imán más débil, recalibrar manualmente desde Launcher.
+- Las whitelists por keycode (continuous RT, RT predictivo, release-stretch) se
+  resuelven en `update_travel_configs()`, o sea en boot, cambio de perfil y giro
+  del interruptor. Un **remap en caliente desde Launcher no las recoloca hasta
+  uno de esos tres eventos** — gira el interruptor a Win y vuelve, o reinicia.
+- La coincidencia de keycode es **exacta**: un `KC_W` envuelto en mod-tap o
+  layer-tap no entra en la whitelist. Y si dos posiciones mapean al mismo
+  keycode, el release-stretch (que lleva estado por slot) se queda con la
+  primera en orden de barrido; las máscaras predictivas marcan las dos.
 - Compilar: MSYS2 MinGW64 (`qmk compile -kb keychron/k2_he/ansi -km alex`);
-  qmk no está en el PATH de PowerShell.
+  qmk no está en el PATH de PowerShell. Ojo: en shell no interactivo
+  `USERPROFILE` viene vacío y `qmk` muere con "Could not determine home
+  directory" — exportarlo antes.
 
 ## Referencias
 

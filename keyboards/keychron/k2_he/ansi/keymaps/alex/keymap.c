@@ -36,6 +36,9 @@ enum layers {
 STATIC_ASSERT(GAMING_BASE == 0 && WIN_BASE == 2, "El DIP del K2 HE exige Gaming=0 y Windows=2");
 STATIC_ASSERT((((1UL << GAMING_BASE) | (1UL << GAMING_FN)) & ~ANALOG_GAMING_LAYERS_MASK) == 0, "Las capas Gaming deben estar dentro de ANALOG_GAMING_LAYERS_MASK");
 STATIC_ASSERT((((1UL << WIN_BASE) | (1UL << WIN_FN)) & ANALOG_GAMING_LAYERS_MASK) == 0, "Las capas Windows deben quedar fuera de ANALOG_GAMING_LAYERS_MASK");
+// Las whitelists por keycode (continuous RT, RT predictivo, release-stretch) se
+// resuelven contra esta capa: tiene que ser la base de Gaming, no la de Windows.
+STATIC_ASSERT(ANALOG_POLICY_LAYER == GAMING_BASE, "ANALOG_POLICY_LAYER debe apuntar a la capa base de Gaming");
 
 #define FN_GAMING KC_NO
 #define FN_WIN MO(WIN_FN)
