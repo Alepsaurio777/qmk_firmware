@@ -258,7 +258,7 @@ void matrix_read_rows_on_col(uint8_t current_col, matrix_row_t row_shifter) {
 
             update_raw_value(row_index, current_col, samples[row_index]);
 
-            bool pressed = analog_matrix_get_key_state(row_index, current_col);
+            bool pressed = analog_matrix_release_stretch_apply(row_index, current_col, analog_matrix_get_key_state(row_index, current_col));
             if (pressed) {
                 if ((analog_raw_matrix[row_index] & row_mask) == 0) changed = true;
 
@@ -309,7 +309,7 @@ static void process_col_samples(uint8_t col, matrix_row_t row_shifter, const adc
 
         update_raw_value(row_index, col, smp[row_index]);
 
-        bool pressed = analog_matrix_get_key_state(row_index, col);
+        bool pressed = analog_matrix_release_stretch_apply(row_index, col, analog_matrix_get_key_state(row_index, col));
         if (pressed) {
             if ((analog_raw_matrix[row_index] & row_shifter) == 0) changed = true;
             row_value |= (0x01 << row_index);

@@ -1,0 +1,44 @@
+FIRMWARE K2 HE — compilaciones (17-jul-2026, commit del dia con fixes de auditoria)
+====================================================================================
+
+DOS firmwares, solo formato .bin (los .hex viejos se eliminaron para no
+flashear por error una version obsoleta). Esta carpeta se regenera con cada
+tanda de cambios; la fecha de los archivos dice de cuando son.
+
+Ambos comparten TODA la logica; difieren solo en flags de compilacion.
+
+
+k2he-TORNEO.bin  (keymap "alex")  <- EL DE DIARIO / JUGAR
+---------------------------------------------------------
+El binario minimo y determinista. Incluye:
+  - SOF-sync + pipeline (barrido anclado al bus USB, sin loteria de fase)
+  - 1 kHz real (USB Full-Speed, un reporte por frame)
+  - Rapid trigger solo en movimiento (WASD, espacio, LShift, LCtrl); 0.3/0.2 mm
+  - Rappy Snappy (SOCD por profundidad) con histeresis anti-chatter y
+    desempate deterministico sin ganador previo
+  - Lockdown Gaming cerrado: capas (incl. PDF y Tri-Layer), perfiles, macros,
+    magic, bootloader; el modo lo decide SOLO el interruptor fisico
+  - Migracion EEPROM atomica (version se sella al final)
+  - Telemetria/logger compilados pero APAGADOS (se arman por comando HID 0xEE
+    desde telemetry_client.py; ya no hay keycodes Fn+Y/Fn+U)
+SIN aprendizaje de bottom-out, SIN prediccion, SIN probe de debug.
+
+k2he-LAB-experimental.bin  (keymap "alex_lab")  <- SOLO PARA PROBAR
+-------------------------------------------------------------------
+Todo lo del torneo MAS lo experimental:
+  - RT predictivo por velocidad (vel_ema con decay minimo 1 — sin residuos)
+  - Aprendizaje de bottom-out por tecla (solo-crece, 1 pasada/50 ms)
+  - Probe de timing del barrido (duracion/fase via telemetria)
+NO es el binario con el que competir.
+
+
+Como flashear (recordatorio)
+----------------------------
+1. Interruptor OS en Win y conexion por CABLE.
+2. Entrar a DFU y flashear el .bin con QMK Toolbox.
+3. PRIMER BOOT tras este flasheo: la version de EEPROM subio (0x34340005),
+   asi que los perfiles se resetean a default automaticamente. Es esperado.
+4. En Launcher: reconfigurar perfiles y RECALIBRAR. Dejar arrancar el teclado
+   sin tocar teclas (calibracion de reposo).
+5. Cambiar Win<->Gaming con todas las teclas sueltas (regla de higiene:
+   evita edge cases de DKS/perfil en la transicion).

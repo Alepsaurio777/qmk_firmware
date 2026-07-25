@@ -116,7 +116,6 @@
 #define ANALOG_CONTINUOUS_RT_KEY2_ROW 4
 #define ANALOG_CONTINUOUS_RT_KEY2_COL 0
 #define ANALOG_GAMING_DEFAULT_RAPID_PROFILE 1
-#define ANALOG_GAMING_DEFAULT_REGULAR_PROFILE 1
 #define STATIC_HYSTERESIS_TYPING 5
 #define ANALOG_RAW_NOISE_FILTER_GAMING 5
 #define ANALOG_RAW_NOISE_FILTER_TYPING 5
@@ -170,14 +169,19 @@
 #define ANALOG_PREDICTIVE_RT_KEY5_COL 2
 #define ANALOG_PREDICTIVE_RT_KEY6_ROW 3 // D
 #define ANALOG_PREDICTIVE_RT_KEY6_COL 3
-#define ANALOG_PREDICTIVE_REGULAR_KEY1_ROW 2 // W
-#define ANALOG_PREDICTIVE_REGULAR_KEY1_COL 2
-#define ANALOG_PREDICTIVE_REGULAR_KEY2_ROW 3 // A
-#define ANALOG_PREDICTIVE_REGULAR_KEY2_COL 1
-#define ANALOG_PREDICTIVE_REGULAR_KEY3_ROW 3 // S
-#define ANALOG_PREDICTIVE_REGULAR_KEY3_COL 2
-#define ANALOG_PREDICTIVE_REGULAR_KEY4_ROW 3 // D
-#define ANALOG_PREDICTIVE_REGULAR_KEY4_COL 3
+// (19-jul) ANALOG_PREDICTIVE_REGULAR_* eliminado entero (flag+coords+matcher+
+// force-mode): nunca se encendio y el criterio #4 mata su unico caso de uso.
+
+// F6 (lab): release-stretch anclado al tick de MC (50 ms). Coordenadas
+// compartidas e inertes con el flag apagado (default en analog_matrix.h);
+// alex_lab lo enciende. Solo W y espacio: son las dos teclas cuyo release
+// DEBE ser visto por el muestreo por tick (sprint-reset / reset de jumpTicks).
+// Nunca A/D (forzaria ~55 ms de neutral en cada cambio de strafe) ni LShift
+// (un unshift no visto al bridgear es un fallo seguro, no un bug).
+#define ANALOG_RELEASE_STRETCH_KEY1_ROW 2 // W
+#define ANALOG_RELEASE_STRETCH_KEY1_COL 2
+#define ANALOG_RELEASE_STRETCH_KEY2_ROW 5 // espacio
+#define ANALOG_RELEASE_STRETCH_KEY2_COL 6
 
 // Tap-hold configurations to make spacebar/other keys feel responsive if mapped as layer-taps or mod-taps
 #define TAPPING_TERM 175

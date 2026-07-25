@@ -8,7 +8,7 @@ LShift**. Sirve para tres cosas concretas:
 
 1. **Medir el ruido real del sensor**: con el dedo apoyado sin presionar, el
    pico-a-pico del travel es la sensibilidad mínima honesta de rapid trigger.
-   Cualquier sensibilidad por debajo de esa cifra genera actuaciones fantasma.
+   Una sensibilidad por debajo de esa cifra eleva el riesgo de chatter.
    (La industria vende 0.1 mm; el ruido físico suele estar en 0.05–0.1 mm.)
 2. **Medir la deriva térmica**: comparar el valor de reposo recién encendido vs
    tras 1–2 h de sesión. Con la auto-calibración apagada
@@ -90,19 +90,42 @@ modo de fallo que Wooting documentó (Phantom Shift Detection).
 
 ### Qué marca
 
-- **DOBLE**: un release→press del mismo key en menos de `DOUBLE_MS` (40 ms por
-  defecto) — re-disparo sospechoso / rebote.
-- **MARGINAL**: un press cuyo travel en el instante fue < `MARGINAL_TRAVEL`
-  (30 = ~0.5 mm) — actuación cerca del umbral, típica de un fantasma.
+- **candidato de rebote**: un release→press del mismo key en menos de
+  `PHANTOM_MS` (10 ms). Es una firma estrecha de chatter, no una prueba de
+  ausencia de todo falso input; el CSV conserva el contexto para confirmarlo.
+- **rápido** (info): release→press de 10-20 ms — humanamente posible pero
+  raro; tapeo agresivo, no necesariamente un fallo.
+
+(Histórico: hubo un criterio "MARGINAL = press con travel < 30". Se eliminó:
+con rapid trigger medía la configuración del usuario, no fantasmas.)
+
+### Histograma de ventanas OFF (mecánica de tick de MC 1.8.9)
+
+Al salir, el resumen incluye por tecla la distribución de **ventanas OFF**
+(release→re-press, solo taps < 1 s; resolución 1 ms; columna `off_ms` del
+CSV). Por qué importa: el cliente 1.8.9 muestrea el *estado* de las teclas de
+movimiento **una vez por tick (50 ms)** — una ventana OFF de `d` ms solo es
+observada con probabilidad ~`d/50` cuando `d < 50`. En cristiano:
+
+- **W**: ventana no vista = w-tap que NO resetea sprint (golpe sin el KB extra).
+- **Espacio**: ventana no vista = `jumpTicks` sin resetear → el siguiente
+  salto puede retrasarse hasta 500 ms justo bajo combo.
+
+Un `%<50` alto en W/SPC con el build de torneo es la evidencia que justifica
+el **release-stretch** (F6, solo `alex_lab`): con él activo, W y SPC no deben
+mostrar ninguna ventana < 55 ms — si aparecen, el stretch no está actuando.
 
 ### Cómo decidir
 
 Juega una sesión real y larga (para que entre el drift térmico). Si el resumen
-sale **limpio** (0 dobles, 0 marginales) → el firmware no tiene fantasmas y la
-histéresis adaptativa no hace falta. Si se **concentran en LShift/LCtrl** → es
+sale sin candidatos sub-10 ms → no hay evidencia de chatter con esa firma; no
+autoriza a concluir que no existe ninguna otra clase de falso input. Si los
+candidatos se **concentran en LShift/LCtrl** → es
 el caso de Wooting: implementar histéresis/dead-zone adaptativa cerca del
-reposo en esos modificadores. Decidir con los datos, no antes.
+reposo en esos modificadores. Para F6, decide el histograma de ventanas OFF,
+no la sensación. Decidir con los datos, no antes.
 
-Formato de paquete (32 B): `[0]=0xEC [1]=version [2]=N`, luego N×5 bytes
+Formato de paquete v2 (32 B): `[0]=0xEC [1]=2 [2]=N`, luego N×5 bytes
 `[t_lo, t_hi, key_idx, pressed, travel]`. key_idx: 0=W 1=A 2=S 3=D 4=SPC
-5=LSFT 6=LCTL.
+5=LSFT 6=LCTL. `[28]=secuencia`; `[29..30]=eventos descartados` LE. El
+cliente rechaza otras versiones y marca como incompleta cualquier pérdida.

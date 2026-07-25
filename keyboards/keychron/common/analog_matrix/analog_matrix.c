@@ -140,6 +140,14 @@ enum {
     AMC_GET_CALIBRATED_VALUE,
 };
 
+// Se intento (19-jul) invertir esto a whitelist de solo-lectura en Gaming
+// (bloquear todo SET/SAVE/SELECT). REVERTIDO el mismo dia: el flujo real de
+// tuning exige el modo Gaming ACTIVO (el perfil gaming solo corre ahi — se
+// ajusta sensibilidad en Launcher y se siente en vivo), y el lockdown lo
+// rompia. Queda la blacklist minima original: calibrar y resetear perfil son
+// las dos operaciones sin caso de uso legitimo a mitad de partida. Si algun
+// dia vuelve el endurecimiento, la via es la "escotilla de tuning" del
+// ROADMAP (desbloqueo deliberado por 0xEE con timeout), no esta funcion.
 static inline bool analog_matrix_reject_raw_hid_in_gaming(uint8_t cmd) {
     if (!analog_matrix_is_gaming_mode()) return false;
 
@@ -197,7 +205,7 @@ uint8_t analog_matrix_get_travel(uint8_t row, uint8_t col) {
     return analog_key_matrix[row][col].travel;
 }
 
-#if ANALOG_DISABLE_OKMC_IN_GAMING_MODE || ANALOG_DISABLE_TOGGLE_IN_GAMING_MODE || ANALOG_DISABLE_GAMEPAD_IN_GAMING_MODE || ANALOG_PREDICTIVE_REGULAR_FORCE_MODE_IN_GAMING
+#if ANALOG_DISABLE_OKMC_IN_GAMING_MODE || ANALOG_DISABLE_TOGGLE_IN_GAMING_MODE || ANALOG_DISABLE_GAMEPAD_IN_GAMING_MODE
 static inline uint8_t analog_matrix_base_mode(uint8_t row, uint8_t col) {
     analog_matrix_profile_t *cur_prof = profile_get_current();
     analog_key_config_t *    key_cfg  = &cur_prof->key_config[row][col];
@@ -205,33 +213,23 @@ static inline uint8_t analog_matrix_base_mode(uint8_t row, uint8_t col) {
     return key_cfg->mode == AKM_GLOBAL ? cur_prof->global.mode : key_cfg->mode;
 }
 
-static inline uint8_t analog_matrix_apply_gaming_mode_overrides(uint8_t row, uint8_t col, uint8_t mode) {
-#    if ANALOG_PREDICTIVE_REGULAR_FORCE_MODE_IN_GAMING
-    if (mode == AKM_RAPID && analog_matrix_is_gaming_mode() && analog_matrix_predictive_regular_key_matches(row, col)) {
-        return AKM_REGULAR;
-    }
-#    endif
-
-    return mode;
-}
-
 static inline uint8_t analog_matrix_effective_mode(uint8_t row, uint8_t col, uint8_t mode) {
 #    if ANALOG_DISABLE_OKMC_IN_GAMING_MODE
     if (mode == AKM_DKS && analog_matrix_is_gaming_mode()) {
-        return analog_matrix_apply_gaming_mode_overrides(row, col, analog_matrix_base_mode(row, col));
+        return analog_matrix_base_mode(row, col);
     }
 #    endif
 #    if ANALOG_DISABLE_TOGGLE_IN_GAMING_MODE
     if (mode == AKM_TOGGLE && analog_matrix_is_gaming_mode()) {
-        return analog_matrix_apply_gaming_mode_overrides(row, col, analog_matrix_base_mode(row, col));
+        return analog_matrix_base_mode(row, col);
     }
 #    endif
 #    if ANALOG_DISABLE_GAMEPAD_IN_GAMING_MODE
     if (mode == AKM_GAMEPAD && analog_matrix_is_gaming_mode()) {
-        return analog_matrix_apply_gaming_mode_overrides(row, col, analog_matrix_base_mode(row, col));
+        return analog_matrix_base_mode(row, col);
     }
 #    endif
-    return analog_matrix_apply_gaming_mode_overrides(row, col, mode);
+    return mode;
 }
 #else
 static inline uint8_t analog_matrix_effective_mode(uint8_t row, uint8_t col, uint8_t mode) {
@@ -1062,6 +1060,57 @@ bool analog_matrix_get_key_state(uint8_t row, uint8_t col) {
     }
 }
 
+#if ANALOG_RELEASE_STRETCH_IN_GAMING_MODE
+// F6: minimo de tiempo OFF *reportado* tras un release fisico (racional en
+// analog_matrix.h). Vive en la capa de reporte — la FSM del RT y el travel
+// siguen intactos — y se aplica en los dos paths de escaneo, que llaman aqui
+// en cada barrido aunque el travel no cambie (la FSM no; por eso el press
+// diferido no puede implementarse dentro de rapid_trigger_action). Estado por
+// slot de whitelist, no por tecla: son 2 teclas fijadas en compile-time.
+typedef struct {
+    uint16_t deadline;     // timer_read() en el que expira la ventana OFF
+    bool     stretching;   // ventana activa: el press fisico se reporta OFF
+    bool     prev_pressed; // estado FISICO previo (detecta el flanco de release)
+} release_stretch_t;
+
+static release_stretch_t release_stretch[2];
+
+static inline int8_t release_stretch_slot(uint8_t row, uint8_t col) {
+    if (analog_matrix_coord_matches(row, col, ANALOG_RELEASE_STRETCH_KEY1_ROW, ANALOG_RELEASE_STRETCH_KEY1_COL)) return 0;
+    if (analog_matrix_coord_matches(row, col, ANALOG_RELEASE_STRETCH_KEY2_ROW, ANALOG_RELEASE_STRETCH_KEY2_COL)) return 1;
+    return -1;
+}
+
+bool analog_matrix_release_stretch_apply(uint8_t row, uint8_t col, bool pressed) {
+    int8_t slot = release_stretch_slot(row, col);
+    if (slot < 0) return pressed;
+
+    release_stretch_t *s = &release_stretch[slot];
+
+    // Fuera de Gaming el filtro no aplica. Limpiar aqui evita arrastrar una
+    // ventana a medias al volver a Gaming (su deadline de 16 bits, tras >32 s
+    // de wrap, volveria a parecer futura y colaria una supresion espuria).
+    if (!analog_matrix_is_gaming_mode()) {
+        s->stretching   = false;
+        s->prev_pressed = pressed;
+        return pressed;
+    }
+
+    if (s->prev_pressed && !pressed) {
+        // Flanco de release fisico: abrir (o re-abrir) la ventana OFF minima.
+        s->deadline   = timer_read() + ANALOG_RELEASE_STRETCH_MS;
+        s->stretching = true;
+    }
+    s->prev_pressed = pressed;
+
+    if (s->stretching) {
+        if (!timer_expired(timer_read(), s->deadline)) return false;
+        s->stretching = false; // expirada: el press fisico (si sigue ahi) pasa ya
+    }
+
+    return pressed;
+}
+#endif
 
 bool set_calibrate(uint8_t *data) {
     uint8_t new_cali_state = data[0];

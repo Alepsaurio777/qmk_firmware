@@ -40,19 +40,26 @@ static inline bool rt_continuous_enabled(const analog_key_t *key) {
 #endif
 }
 
-static inline bool rt_predictive_enabled(const analog_key_t *key) {
+// F7: indice 0..5 de la tecla en la whitelist predictiva (KEY1..KEY6), o -1 si
+// no esta o la prediccion no aplica. Las mascaras PRESS/REPRESS (bit i = KEYi+1,
+// ver analog_matrix.h) eligen por separado que camino de la FSM puede predecir
+// para cada tecla: adelantar el re-press acorta la ventana OFF que el tick de
+// 50 ms de MC debe muestrear, asi que re-press y primer press son decisiones
+// distintas por mecanica.
+static inline int8_t rt_predictive_key_index(const analog_key_t *key) {
 #if ANALOG_PREDICTIVE_ACTUATION_IN_GAMING_MODE
-    return analog_matrix_is_gaming_mode() &&
-           (rt_continuous_key_matches(key, ANALOG_PREDICTIVE_RT_KEY1_ROW, ANALOG_PREDICTIVE_RT_KEY1_COL) ||
-            rt_continuous_key_matches(key, ANALOG_PREDICTIVE_RT_KEY2_ROW, ANALOG_PREDICTIVE_RT_KEY2_COL) ||
-            rt_continuous_key_matches(key, ANALOG_PREDICTIVE_RT_KEY3_ROW, ANALOG_PREDICTIVE_RT_KEY3_COL) ||
-            rt_continuous_key_matches(key, ANALOG_PREDICTIVE_RT_KEY4_ROW, ANALOG_PREDICTIVE_RT_KEY4_COL) ||
-            rt_continuous_key_matches(key, ANALOG_PREDICTIVE_RT_KEY5_ROW, ANALOG_PREDICTIVE_RT_KEY5_COL) ||
-            rt_continuous_key_matches(key, ANALOG_PREDICTIVE_RT_KEY6_ROW, ANALOG_PREDICTIVE_RT_KEY6_COL));
+    if (analog_matrix_is_gaming_mode()) {
+        if (rt_continuous_key_matches(key, ANALOG_PREDICTIVE_RT_KEY1_ROW, ANALOG_PREDICTIVE_RT_KEY1_COL)) return 0;
+        if (rt_continuous_key_matches(key, ANALOG_PREDICTIVE_RT_KEY2_ROW, ANALOG_PREDICTIVE_RT_KEY2_COL)) return 1;
+        if (rt_continuous_key_matches(key, ANALOG_PREDICTIVE_RT_KEY3_ROW, ANALOG_PREDICTIVE_RT_KEY3_COL)) return 2;
+        if (rt_continuous_key_matches(key, ANALOG_PREDICTIVE_RT_KEY4_ROW, ANALOG_PREDICTIVE_RT_KEY4_COL)) return 3;
+        if (rt_continuous_key_matches(key, ANALOG_PREDICTIVE_RT_KEY5_ROW, ANALOG_PREDICTIVE_RT_KEY5_COL)) return 4;
+        if (rt_continuous_key_matches(key, ANALOG_PREDICTIVE_RT_KEY6_ROW, ANALOG_PREDICTIVE_RT_KEY6_COL)) return 5;
+    }
 #else
     (void)key;
-    return false;
 #endif
+    return -1;
 }
 
 static inline bool rt_predictive_downstroke_ready(const analog_key_t *key, bool predictive_rt, uint8_t target) {
@@ -123,15 +130,17 @@ static inline uint8_t rt_repress_max_travel(bool continuous_rt) {
 }
 
 bool rapid_trigger_action(analog_key_t *key) {
-    bool   changed          = false;
-    int8_t update_rapid_pts = 0;
-    bool   continuous_rt    = rt_continuous_enabled(key);
-    bool   predictive_rt    = rt_predictive_enabled(key);
+    bool   changed            = false;
+    int8_t update_rapid_pts   = 0;
+    bool   continuous_rt      = rt_continuous_enabled(key);
+    const int8_t pred_idx     = rt_predictive_key_index(key);
+    bool   predictive_press   = pred_idx >= 0 && ((ANALOG_PREDICTIVE_PRESS_KEY_MASK >> pred_idx) & 1);
+    bool   predictive_repress = pred_idx >= 0 && ((ANALOG_PREDICTIVE_REPRESS_KEY_MASK >> pred_idx) & 1);
 
     switch (key->state) {
         case AKS_REGULAR_RELEASED:
             // Chick first actuation
-            if (key->travel >= key->regular.actn_pt || rt_predictive_press_ready(key, predictive_rt)) {
+            if (key->travel >= key->regular.actn_pt || rt_predictive_press_ready(key, predictive_press)) {
                 key->state = AKS_REGULAR_PRESSED;
                 changed    = true;
                 // First update rapid trigger point
@@ -161,7 +170,7 @@ bool rapid_trigger_action(analog_key_t *key) {
                 key->state = AKS_REGULAR_RELEASED;
             }
             // Press again
-            else if (rt_repress_ready(key, continuous_rt) || rt_predictive_repress_ready(key, continuous_rt, predictive_rt)) {
+            else if (rt_repress_ready(key, continuous_rt) || rt_predictive_repress_ready(key, continuous_rt, predictive_repress)) {
                 key->state       = AKS_RAPID_PRESSED;
                 changed          = true;
                 update_rapid_pts = 1;

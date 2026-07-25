@@ -10,13 +10,9 @@
 // un keycode depende del keymap, y el keymap de VIA vive en EEPROM, que puede
 // pisar el default del firmware y dejar el toggle inalcanzable.
 //
-// ACOPLAMIENTO MINIMO — esto es temporal y se quitara al cerrar el proyecto.
-// Para eliminarlo por completo bastan 4 cosas:
-//   1. borrar telemetry.c / telemetry.h
-//   2. quitar "SRC += telemetry.c" de rules.mk
-//   3. quitar el #include "telemetry.h" de keymap.c
-//   4. quitar las 3 llamadas de keymap.c (las de abajo)
-// Nada mas del firmware lo referencia.
+// Acoplamiento explicito: rules-common.mk define ALEX_TELEMETRY_ENABLE y
+// keymap.c guarda include/llamadas con ese flag. Para compilarlo fuera basta
+// ALEX_TELEMETRY_ENABLE = no; no hay que editar logica compartida.
 
 void telemetry_task(void);                                                        // housekeeping
 void evlog_task(void);                                                            // housekeeping

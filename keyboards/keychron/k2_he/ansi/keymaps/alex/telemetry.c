@@ -6,7 +6,7 @@
 // Formato del paquete (32 bytes, endpoint Raw HID de VIA):
 //   [0] 0xED magic  [1] version  [2..3] timer_read16 LE  [4] seq
 //   [5] numero de teclas N
-//   [6 + i*2]     travel de la tecla i (0..240, unidades de TRAVEL_SCALE*0.1mm)
+//   [6 + i*2]     travel de la tecla i (0..240, unidades de 0.1mm/TRAVEL_SCALE)
 //   [6 + i*2 + 1] estado logico (1 = registrada como pulsada)
 // v2 (con USB_SOF_TIMING_PROBE):
 //   [18..21] contador de barridos completos, LE (el cliente deriva scans/s)
@@ -89,14 +89,16 @@ void telemetry_task(void) {
 // CAMBIOS de estado de las teclas de movimiento, con el travel del instante. Al
 // ser event-driven su costo es ~cero cuando no pasa nada, asi que SI corre en
 // Gaming — el objetivo es cazar fantasmas en juego real (LShift/LCtrl en
-// especial). El analisis (dobles, presses marginales) lo hace el cliente.
-//   Paquete (32 B): [0] 0xEC  [1] version  [2] N eventos
+// especial). El analisis (candidatos sub-10 ms y ventanas OFF) lo hace el cliente.
+//   Paquete v2 (32 B): [0] 0xEC  [1] version  [2] N eventos
 //     luego N x 5 bytes: [t_lo, t_hi, key_idx, pressed, travel]
+//     [28] secuencia de paquete  [29..30] eventos descartados, LE
 //   key_idx: 0=W 1=A 2=S 3=D 4=SPC 5=LSFT 6=LCTL
 #define EVLOG_MAGIC 0xEC
-#define EVLOG_VERSION 1
+#define EVLOG_VERSION 2
 #define EVLOG_RING 32
 #define EVLOG_MAX_PER_PKT 5
+STATIC_ASSERT(3 + EVLOG_MAX_PER_PKT * 5 <= 28, "Los eventos evlog no deben invadir metadata v2");
 
 typedef struct {
     uint16_t t;
@@ -108,6 +110,8 @@ typedef struct {
 static evlog_event_t evlog_ring[EVLOG_RING];
 static uint8_t       evlog_head;
 static uint8_t       evlog_count;
+static uint8_t       evlog_seq;
+static uint16_t      evlog_dropped;
 static bool          evlog_active = false;
 
 static int8_t evlog_key_index(uint16_t keycode) {
@@ -131,7 +135,10 @@ void evlog_record_event(uint16_t keycode, bool pressed, uint8_t row, uint8_t col
     // (0xFF). analog_matrix_get_travel no valida rango, asi que descartamos:
     // no es una actuacion fisica y no tiene travel real que registrar.
     if (row >= MATRIX_ROWS || col >= MATRIX_COLS) return;
-    if (evlog_count >= EVLOG_RING) return; // burst improbable: dropea el mas nuevo
+    if (evlog_count >= EVLOG_RING) {
+        if (evlog_dropped != UINT16_MAX) evlog_dropped++;
+        return; // burst improbable: dropea el mas nuevo y lo hace observable
+    }
 
     evlog_event_t *e = &evlog_ring[(evlog_head + evlog_count) % EVLOG_RING];
     e->t       = timer_read();
@@ -161,6 +168,10 @@ void evlog_task(void) {
         evlog_count--;
     }
 
+    pkt[28] = evlog_seq++;
+    pkt[29] = evlog_dropped & 0xFF;
+    pkt[30] = evlog_dropped >> 8;
+
     raw_hid_send(pkt, TELEMETRY_EPSIZE);
 }
 
@@ -188,9 +199,11 @@ void kc_raw_hid_rx_user(uint8_t src, uint8_t *data, uint8_t length) {
     if (length >= 2 && data[0] == DIAG_CMD) {
         switch (data[1]) {
             case DIAG_EVLOG_ON:
-                evlog_head   = 0;
-                evlog_count  = 0;
-                evlog_active = true;
+                evlog_head    = 0;
+                evlog_count   = 0;
+                evlog_seq     = 0;
+                evlog_dropped = 0;
+                evlog_active  = true;
                 break;
             case DIAG_EVLOG_OFF:
                 evlog_active = false;

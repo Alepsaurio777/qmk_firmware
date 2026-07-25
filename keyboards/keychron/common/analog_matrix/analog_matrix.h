@@ -97,10 +97,6 @@
 #    define ANALOG_CONTINUOUS_RT_KEY2_COL 0xFF
 #endif
 
-#ifndef RAPID_TRIGGER_TICK
-#    define RAPID_TRIGGER_TICK 10
-#endif
-
 #ifndef MIN_ACTUATION
 #    define MIN_ACTUATION 5
 #endif
@@ -219,20 +215,8 @@ static inline bool analog_matrix_is_gaming_mode(void) {
 #    define ANALOG_PREDICTIVE_ACTUATION_IN_GAMING_MODE 0
 #endif
 
-#ifndef ANALOG_PREDICTIVE_REGULAR_IN_GAMING_MODE
-#    define ANALOG_PREDICTIVE_REGULAR_IN_GAMING_MODE 0
-#endif
-
-#ifndef ANALOG_PREDICTIVE_REGULAR_FORCE_MODE_IN_GAMING
-#    define ANALOG_PREDICTIVE_REGULAR_FORCE_MODE_IN_GAMING 0
-#endif
-
 #ifndef ANALOG_GAMING_DEFAULT_RAPID_PROFILE
 #    define ANALOG_GAMING_DEFAULT_RAPID_PROFILE 0xFF
-#endif
-
-#ifndef ANALOG_GAMING_DEFAULT_REGULAR_PROFILE
-#    define ANALOG_GAMING_DEFAULT_REGULAR_PROFILE 0xFF
 #endif
 
 #ifndef ANALOG_PREDICTIVE_RT_KEY1_ROW
@@ -283,38 +267,6 @@ static inline bool analog_matrix_is_gaming_mode(void) {
 #    define ANALOG_PREDICTIVE_RT_KEY6_COL 0xFF
 #endif
 
-#ifndef ANALOG_PREDICTIVE_REGULAR_KEY1_ROW
-#    define ANALOG_PREDICTIVE_REGULAR_KEY1_ROW 0xFF
-#endif
-
-#ifndef ANALOG_PREDICTIVE_REGULAR_KEY1_COL
-#    define ANALOG_PREDICTIVE_REGULAR_KEY1_COL 0xFF
-#endif
-
-#ifndef ANALOG_PREDICTIVE_REGULAR_KEY2_ROW
-#    define ANALOG_PREDICTIVE_REGULAR_KEY2_ROW 0xFF
-#endif
-
-#ifndef ANALOG_PREDICTIVE_REGULAR_KEY2_COL
-#    define ANALOG_PREDICTIVE_REGULAR_KEY2_COL 0xFF
-#endif
-
-#ifndef ANALOG_PREDICTIVE_REGULAR_KEY3_ROW
-#    define ANALOG_PREDICTIVE_REGULAR_KEY3_ROW 0xFF
-#endif
-
-#ifndef ANALOG_PREDICTIVE_REGULAR_KEY3_COL
-#    define ANALOG_PREDICTIVE_REGULAR_KEY3_COL 0xFF
-#endif
-
-#ifndef ANALOG_PREDICTIVE_REGULAR_KEY4_ROW
-#    define ANALOG_PREDICTIVE_REGULAR_KEY4_ROW 0xFF
-#endif
-
-#ifndef ANALOG_PREDICTIVE_REGULAR_KEY4_COL
-#    define ANALOG_PREDICTIVE_REGULAR_KEY4_COL 0xFF
-#endif
-
 #ifndef ANALOG_PREDICTIVE_ACTUATION_ADVANCE
 #    define ANALOG_PREDICTIVE_ACTUATION_ADVANCE TRAVEL_SCALE
 #endif
@@ -359,19 +311,65 @@ static inline bool analog_matrix_is_gaming_mode(void) {
 #    define ANALOG_PREDICTIVE_LOOKAHEAD 2
 #endif
 
+// ----- F7: mascaras por camino del RT predictivo ---------------------------
+// bit i = ANALOG_PREDICTIVE_RT_KEY(i+1). Separan la prediccion del PRIMER
+// press (AKS_REGULAR_RELEASED) de la del RE-press (AKS_RAPID_RELEASED). El
+// motivo es MC 1.8.9: el juego muestrea el estado de movimiento 1 vez por tick
+// (50 ms), y adelantar el re-press ACORTA la ventana OFF que ese muestreo
+// tiene que ver (w-tap/sprint-reset) — un re-press predictivo puede ser
+// negativo aunque el primer press predictivo sea neutro o positivo. Default
+// 0x3F = las 6 teclas en ambos caminos (comportamiento previo). Inertes si
+// ANALOG_PREDICTIVE_ACTUATION_IN_GAMING_MODE == 0.
+#ifndef ANALOG_PREDICTIVE_PRESS_KEY_MASK
+#    define ANALOG_PREDICTIVE_PRESS_KEY_MASK 0x3F
+#endif
+
+#ifndef ANALOG_PREDICTIVE_REPRESS_KEY_MASK
+#    define ANALOG_PREDICTIVE_REPRESS_KEY_MASK 0x3F
+#endif
+
+// ----- F6: release-stretch anclado al tick ---------------------------------
+// MC 1.8.9 muestrea el ESTADO de las teclas de movimiento una vez por tick de
+// cliente (50 ms). Un release+re-press que viva entero entre dos muestreos no
+// existe para el juego: el w-tap no resetea sprint y el tap de espacio no
+// resetea jumpTicks (salto retrasado hasta 500 ms bajo combo). Este filtro de
+// la capa de REPORTE (la FSM y el travel no se tocan) garantiza que, tras un
+// release fisico de una tecla whitelisted, el estado reportado quede OFF al
+// menos ANALOG_RELEASE_STRETCH_MS antes de dejar pasar el re-press. Nunca
+// sintetiza ni adelanta input — solo retrasa un press real (semantica de
+// debounce). Solo actua en modo Gaming.
+#ifndef ANALOG_RELEASE_STRETCH_IN_GAMING_MODE
+#    define ANALOG_RELEASE_STRETCH_IN_GAMING_MODE 0
+#endif
+
+// 55 ms > tick de 50 ms: garantiza >=1 muestreo del estado OFF con el peor
+// alineamiento de fase respecto al tick del cliente.
+#ifndef ANALOG_RELEASE_STRETCH_MS
+#    define ANALOG_RELEASE_STRETCH_MS 55
+#endif
+
+#ifndef ANALOG_RELEASE_STRETCH_KEY1_ROW
+#    define ANALOG_RELEASE_STRETCH_KEY1_ROW 0xFF
+#endif
+
+#ifndef ANALOG_RELEASE_STRETCH_KEY1_COL
+#    define ANALOG_RELEASE_STRETCH_KEY1_COL 0xFF
+#endif
+
+#ifndef ANALOG_RELEASE_STRETCH_KEY2_ROW
+#    define ANALOG_RELEASE_STRETCH_KEY2_ROW 0xFF
+#endif
+
+#ifndef ANALOG_RELEASE_STRETCH_KEY2_COL
+#    define ANALOG_RELEASE_STRETCH_KEY2_COL 0xFF
+#endif
+
 #define ANALOG_COORD_DISABLED(row, col) ((row) == 0xFF && (col) == 0xFF)
 #define ANALOG_COORD_IN_MATRIX(row, col) ((row) < MATRIX_ROWS && (col) < MATRIX_COLS)
 #define ANALOG_COORD_VALID(row, col) (ANALOG_COORD_DISABLED(row, col) || ANALOG_COORD_IN_MATRIX(row, col))
 
 static inline bool analog_matrix_coord_matches(uint8_t row, uint8_t col, uint8_t cfg_row, uint8_t cfg_col) {
     return cfg_row != 0xFF && cfg_col != 0xFF && row == cfg_row && col == cfg_col;
-}
-
-static inline bool analog_matrix_predictive_regular_key_matches(uint8_t row, uint8_t col) {
-    return analog_matrix_coord_matches(row, col, ANALOG_PREDICTIVE_REGULAR_KEY1_ROW, ANALOG_PREDICTIVE_REGULAR_KEY1_COL) ||
-           analog_matrix_coord_matches(row, col, ANALOG_PREDICTIVE_REGULAR_KEY2_ROW, ANALOG_PREDICTIVE_REGULAR_KEY2_COL) ||
-           analog_matrix_coord_matches(row, col, ANALOG_PREDICTIVE_REGULAR_KEY3_ROW, ANALOG_PREDICTIVE_REGULAR_KEY3_COL) ||
-           analog_matrix_coord_matches(row, col, ANALOG_PREDICTIVE_REGULAR_KEY4_ROW, ANALOG_PREDICTIVE_REGULAR_KEY4_COL);
 }
 
 STATIC_ASSERT(ANALOG_COORD_VALID(ANALOG_GAMING_FAST_KEY_ROW, ANALOG_GAMING_FAST_KEY_COL), "ANALOG_GAMING_FAST_KEY must be disabled or inside the matrix");
@@ -383,12 +381,9 @@ STATIC_ASSERT(ANALOG_COORD_VALID(ANALOG_PREDICTIVE_RT_KEY3_ROW, ANALOG_PREDICTIV
 STATIC_ASSERT(ANALOG_COORD_VALID(ANALOG_PREDICTIVE_RT_KEY4_ROW, ANALOG_PREDICTIVE_RT_KEY4_COL), "ANALOG_PREDICTIVE_RT_KEY4 must be disabled or inside the matrix");
 STATIC_ASSERT(ANALOG_COORD_VALID(ANALOG_PREDICTIVE_RT_KEY5_ROW, ANALOG_PREDICTIVE_RT_KEY5_COL), "ANALOG_PREDICTIVE_RT_KEY5 must be disabled or inside the matrix");
 STATIC_ASSERT(ANALOG_COORD_VALID(ANALOG_PREDICTIVE_RT_KEY6_ROW, ANALOG_PREDICTIVE_RT_KEY6_COL), "ANALOG_PREDICTIVE_RT_KEY6 must be disabled or inside the matrix");
-STATIC_ASSERT(ANALOG_COORD_VALID(ANALOG_PREDICTIVE_REGULAR_KEY1_ROW, ANALOG_PREDICTIVE_REGULAR_KEY1_COL), "ANALOG_PREDICTIVE_REGULAR_KEY1 must be disabled or inside the matrix");
-STATIC_ASSERT(ANALOG_COORD_VALID(ANALOG_PREDICTIVE_REGULAR_KEY2_ROW, ANALOG_PREDICTIVE_REGULAR_KEY2_COL), "ANALOG_PREDICTIVE_REGULAR_KEY2 must be disabled or inside the matrix");
-STATIC_ASSERT(ANALOG_COORD_VALID(ANALOG_PREDICTIVE_REGULAR_KEY3_ROW, ANALOG_PREDICTIVE_REGULAR_KEY3_COL), "ANALOG_PREDICTIVE_REGULAR_KEY3 must be disabled or inside the matrix");
-STATIC_ASSERT(ANALOG_COORD_VALID(ANALOG_PREDICTIVE_REGULAR_KEY4_ROW, ANALOG_PREDICTIVE_REGULAR_KEY4_COL), "ANALOG_PREDICTIVE_REGULAR_KEY4 must be disabled or inside the matrix");
+STATIC_ASSERT(ANALOG_COORD_VALID(ANALOG_RELEASE_STRETCH_KEY1_ROW, ANALOG_RELEASE_STRETCH_KEY1_COL), "ANALOG_RELEASE_STRETCH_KEY1 must be disabled or inside the matrix");
+STATIC_ASSERT(ANALOG_COORD_VALID(ANALOG_RELEASE_STRETCH_KEY2_ROW, ANALOG_RELEASE_STRETCH_KEY2_COL), "ANALOG_RELEASE_STRETCH_KEY2 must be disabled or inside the matrix");
 STATIC_ASSERT(ANALOG_CONTINUOUS_RT_REPRESS_MAX_TRAVEL <= ((FULL_TRAVEL_UNIT + 1) * TRAVEL_SCALE - 1), "ANALOG_CONTINUOUS_RT_REPRESS_MAX_TRAVEL cannot exceed max travel");
-STATIC_ASSERT(!ANALOG_PREDICTIVE_REGULAR_FORCE_MODE_IN_GAMING || ANALOG_PREDICTIVE_REGULAR_IN_GAMING_MODE, "ANALOG_PREDICTIVE_REGULAR_FORCE_MODE_IN_GAMING requires ANALOG_PREDICTIVE_REGULAR_IN_GAMING_MODE");
 
 // Threshold value when the magnet switch is not installed
 #ifndef ABNORMAL_ANALOG_RAW_THRESHOLD_VALUE
@@ -429,6 +424,13 @@ void analog_matrix_set_maxs(uint16_t *max);
 uint8_t      analog_matrix_get_travel(uint8_t row, uint8_t col);
 uint8_t      analog_matrix_get_key_mode(uint8_t row, uint8_t col);
 bool         analog_matrix_get_key_state(uint8_t row, uint8_t col);
+
+#if ANALOG_RELEASE_STRETCH_IN_GAMING_MODE
+bool analog_matrix_release_stretch_apply(uint8_t row, uint8_t col, bool pressed);
+#else
+// Compilado fuera en el binario estable: passthrough textual, costo cero.
+#    define analog_matrix_release_stretch_apply(row, col, pressed) (pressed)
+#endif
 bool         analog_matrix_calibrating(void);
 matrix_row_t analog_matrix_get_row(uint8_t row);
 void         analog_matrix_rx(uint8_t *data, uint8_t length);

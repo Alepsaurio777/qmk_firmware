@@ -11,8 +11,8 @@ Dos binarios del mismo teclado, misma lógica, distinto perfil de riesgo.
 
 `alex_lab` **no duplica ni una línea de lógica**. Su estructura:
 - `keymap.c` → `#include "../alex/keymap.c"` (misma lógica de teclado).
-- `config.h` → `#include "../alex/config.h"` + 2 `#define` que encienden lo experimental.
-- `rules.mk` → reutiliza `../alex/telemetry.c`.
+- `config.h` → `#include "../alex/config.h"` + los `#define` experimentales (el inventario de abajo es la lista canónica).
+- `rules.mk` → incluye `rules-common.mk`; solo cambia la ruta a `telemetry.c`.
 
 Consecuencia: **cualquier cambio de lógica se hace en `alex`** y `alex_lab` lo hereda automáticamente. Nunca editas `alex_lab` salvo para encender/apagar un flag experimental. No hay drift posible entre los dos.
 
@@ -64,12 +64,14 @@ qmk compile -kb keychron/k2_he/ansi -km alex_lab
 |---|---|---|---|
 | `ANALOG_SCAN_PIPELINE` | 1 | 1 | Procesa columna previa durante el settle (barrido más corto) |
 | `ANALOG_SCAN_SOF_SYNC` | 1 | 1 | Ancla el barrido al SOF USB (elimina jitter de fase) |
-| `KEYCHRON_FIXED_REPORT_RATE` | on | on | 1 kHz fijo, ignora EEPROM |
-| `ANALOG_BOTTOM_OUT_LEARN` | 1 | 1 | Aprende bottom-out por tecla, solo-crece |
+| report rate USB | 1 kHz | 1 kHz | Fijo por descriptor (`bInterval=1`); no existe flag runtime |
+| `ANALOG_BOTTOM_OUT_LEARN` | **0** | **1** | Aprende bottom-out por tecla, solo-crece (torneo lo apaga: drift descartado con datos, config inmutable) |
 | `ANALOG_SOCD_DEEPER_HYSTERESIS` | 6 | 6 | Histéresis del Rappy Snappy (anti-chatter A/D) |
-| telemetría de travel | sí | sí | Stream Fn+Y (diagnóstico) |
+| `ALEX_TELEMETRY_ENABLE` | sí | sí | Diagnóstico explícito; arranque/parada por comando HID 0xEE |
 | `USB_SOF_TIMING_PROBE` | **no** | **sí** | Instrumentación de duración/fase del barrido |
 | `ANALOG_PREDICTIVE_ACTUATION_IN_GAMING_MODE` | **0** | **1** | RT predictivo por velocidad (especulativo) |
+| `ANALOG_RELEASE_STRETCH_IN_GAMING_MODE` | **0** | **1** | F6: OFF reportado ≥55 ms tras release físico de W/SPC (el tick de 50 ms de MC siempre lo ve) |
+| `ANALOG_PREDICTIVE_PRESS_KEY_MASK` / `_REPRESS_KEY_MASK` | 0x3F (inertes) | **0x29 / 0x28** | F7: whitelist predictiva por camino — press SPC+A+D; re-press solo A+D (con F6, predecir el re-press de SPC no adelanta nada y difiere el fantasma) |
 
 El timestamp del SOF lo provee `usb_main.c` mientras `ANALOG_SCAN_SOF_SYNC` **o** `USB_SOF_TIMING_PROBE` estén activos, así que el torneo tiene sync sin arrastrar el probe.
 

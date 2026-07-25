@@ -1,5 +1,32 @@
-FIRMWARE K2 HE — compilaciones (17-jul-2026, commit del dia con fixes de auditoria)
+FIRMWARE K2 HE — compilaciones (21-jul-2026: fixes de auditoria + evlog v2)
 ====================================================================================
+
+Cambios 21-jul que TOCAN AMBOS binarios:
+1. Contadores HID compatibles con el retrigger de QMK: dos fuentes que emiten
+   el mismo keycode ya no pierden ownership al soltar una (caso OKMC + tecla).
+2. Guardas compile-time del enum de capas contra DIP/mascara Gaming; Gaming
+   bloquea tambien power/sleep/wake aunque VIA los remapee.
+3. Evlog v2: PID exacto, validacion estricta de longitud/version, secuencia y
+   contador de drops, cleanup garantizado y proteccion ante wrap de timer16.
+4. Documentacion/rangos/mascaras sincronizados y rules.mk comun sin duplicar.
+
+Cambios 19-jul que TOCAN AMBOS binarios (version final del dia):
+1. Path muerto ANALOG_PREDICTIVE_REGULAR_* eliminado entero (profile.c tenia
+   codigo vivo no-op de ese path). Sin cambio de comportamiento.
+2. LOCKDOWN HID: se implemento (whitelist solo-lectura en Gaming) y se
+   REVIRTIO el mismo dia — rompia el flujo de tuning con Launcher, que
+   necesita el modo Gaming activo para sentir el perfil gaming en vivo.
+   Estado final = el de siempre: Launcher funciona COMPLETO en ambos modos;
+   en Gaming solo se bloquean calibrar y reset de perfil (blacklist minima
+   pre-existente). El diseño "escotilla de tuning" quedo aparcado en el
+   ROADMAP por si algun dia se quiere endurecer sin romper Launcher.
+3. LGUI: el KC_NO hardcodeado en la capa Gaming tambien se REVIRTIO — la
+   tecla Windows funciona normal; desactivarla es preferencia por tecla que
+   se hace desde Launcher si algun dia molesta.
+Generaciones del 19-jul conservadas: *-19jul-preHIDlock.bin (equivalente
+funcional al final del dia), *-19jul-LGUIno.bin (lockdown + Win muerta) y
+*-19jul-HIDlock.bin (lockdown + Win normal). Las tres son historicas; flashear
+SIEMPRE k2he-TORNEO.bin / k2he-LAB-experimental.bin.
 
 DOS firmwares, solo formato .bin (los .hex viejos se eliminaron para no
 flashear por error una version obsoleta). Esta carpeta se regenera con cada
@@ -16,11 +43,12 @@ El binario minimo y determinista. Incluye:
   - Rapid trigger solo en movimiento (WASD, espacio, LShift, LCtrl); 0.3/0.2 mm
   - Rappy Snappy (SOCD por profundidad) con histeresis anti-chatter y
     desempate deterministico sin ganador previo
-  - Lockdown Gaming cerrado: capas (incl. PDF y Tri-Layer), perfiles, macros,
-    magic, bootloader; el modo lo decide SOLO el interruptor fisico
+  - Lockdown de keycodes Gaming: capas (incl. PDF y Tri-Layer), perfiles,
+    macros, magic, bootloader y power/sleep/wake; el modo lo decide SOLO el
+    interruptor fisico. Launcher conserva tuning HID salvo reset/calibracion.
   - Migracion EEPROM atomica (version se sella al final)
-  - Telemetria/logger compilados pero APAGADOS (se arman por comando HID 0xEE
-    desde telemetry_client.py; ya no hay keycodes Fn+Y/Fn+U)
+  - Telemetria/logger tras ALEX_TELEMETRY_ENABLE y APAGADOS en runtime (se
+    arman por comando HID 0xEE; evlog usa protocolo v2 con deteccion de drops)
 SIN aprendizaje de bottom-out, SIN prediccion, SIN probe de debug.
 
 k2he-LAB-experimental.bin  (keymap "alex_lab")  <- SOLO PARA PROBAR
@@ -29,6 +57,17 @@ Todo lo del torneo MAS lo experimental:
   - RT predictivo por velocidad (vel_ema con decay minimo 1 — sin residuos)
   - Aprendizaje de bottom-out por tecla (solo-crece, 1 pasada/50 ms)
   - Probe de timing del barrido (duracion/fase via telemetria)
+  - (19-jul) F6 release-stretch de tick: tras un release fisico de W/espacio
+    en Gaming, el estado reportado queda OFF >= 55 ms — todo w-tap resetea
+    sprint y todo tap de espacio resetea jumpTicks aunque el dedo sea mas
+    rapido que el muestreo de 50 ms de MC 1.8.9. Solo retrasa presses reales.
+    Al probarlo: subir release de W a 0.3 mm en Launcher (el stretch tambien
+    hace visible el micro-release accidental por temblor).
+  - (19-jul) F7 whitelist predictiva recortada: primer press SPC+A+D (0x29),
+    re-press solo A+D (0x28 — con F6 el re-press predictivo de espacio no
+    adelanta nada y difiere el fantasma); S, W y LShift fuera de todo.
+  - Validacion: telemetry_client.py --events ahora imprime histograma de
+    ventanas OFF por tecla; con este build W/SPC no deben bajar de 55 ms.
 NO es el binario con el que competir.
 
 
@@ -36,9 +75,9 @@ Como flashear (recordatorio)
 ----------------------------
 1. Interruptor OS en Win y conexion por CABLE.
 2. Entrar a DFU y flashear el .bin con QMK Toolbox.
-3. PRIMER BOOT tras este flasheo: la version de EEPROM subio (0x34340005),
-   asi que los perfiles se resetean a default automaticamente. Es esperado.
-4. En Launcher: reconfigurar perfiles y RECALIBRAR. Dejar arrancar el teclado
+3. La version EEPROM sigue en 0x34340005. Si ya usabas el build del 19-jul, los
+   perfiles se conservan; solo builds anteriores a esa migracion se resetean.
+4. Si hubo reset, reconfigurar perfiles en Launcher y RECALIBRAR. Dejar arrancar el teclado
    sin tocar teclas (calibracion de reposo).
 5. Cambiar Win<->Gaming con todas las teclas sueltas (regla de higiene:
    evita edge cases de DKS/perfil en la transicion).

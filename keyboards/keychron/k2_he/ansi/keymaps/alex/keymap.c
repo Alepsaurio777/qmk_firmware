@@ -18,7 +18,9 @@
 #include "analog_matrix.h"
 #include "keychron_common.h"
 #include "profile.h"
-#include "telemetry.h"
+#ifdef ALEX_TELEMETRY_ENABLE
+#    include "telemetry.h"
+#endif
 
 enum layers {
     GAMING_BASE,
@@ -26,6 +28,14 @@ enum layers {
     WIN_BASE,
     WIN_FN,
 };
+
+// k2_he.c fija el DIP en default layer 0 (Gaming) o 2 (Windows), mientras
+// analog_matrix_is_gaming_mode() clasifica mediante ANALOG_GAMING_LAYERS_MASK.
+// Convertir cualquiera de esos acoples en error de compilacion evita que un
+// reordenamiento silencioso desactive el lockdown entero.
+STATIC_ASSERT(GAMING_BASE == 0 && WIN_BASE == 2, "El DIP del K2 HE exige Gaming=0 y Windows=2");
+STATIC_ASSERT((((1UL << GAMING_BASE) | (1UL << GAMING_FN)) & ~ANALOG_GAMING_LAYERS_MASK) == 0, "Las capas Gaming deben estar dentro de ANALOG_GAMING_LAYERS_MASK");
+STATIC_ASSERT((((1UL << WIN_BASE) | (1UL << WIN_FN)) & ANALOG_GAMING_LAYERS_MASK) == 0, "Las capas Windows deben quedar fuera de ANALOG_GAMING_LAYERS_MASK");
 
 #define FN_GAMING KC_NO
 #define FN_WIN MO(WIN_FN)
@@ -38,6 +48,9 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
         KC_TAB,   KC_Q,     KC_W,     KC_E,     KC_R,     KC_T,     KC_Y,     KC_U,     KC_I,     KC_O,     KC_P,     KC_LBRC,  KC_RBRC,  KC_BSLS,            KC_PGDN,
         KC_CAPS,  KC_A,     KC_S,     KC_D,     KC_F,     KC_G,     KC_H,     KC_J,     KC_K,     KC_L,     KC_SCLN,  KC_QUOT,            KC_ENT,             KC_HOME,
         KC_LSFT,            KC_Z,     KC_X,     KC_C,     KC_V,     KC_B,     KC_N,     KC_M,     KC_COMM,  KC_DOT,   KC_SLSH,            KC_RSFT,  KC_UP,    KC_END,
+        // LGUI se queda: desactivarlo en Gaming es una preferencia que
+        // Launcher ya resuelve por tecla (decision 19-jul, revertido el KC_NO
+        // hardcodeado — el firmware no fija lo que la config puede fijar).
         KC_LCTL,  KC_LGUI,  KC_LALT,                                KC_SPC,                                 KC_RALT,  FN_GAMING,KC_RCTL,  KC_LEFT,  KC_DOWN,  KC_RGHT),
 
     // Capa inalcanzable en Gaming (FN_GAMING = KC_NO y process_record_user
@@ -108,8 +121,10 @@ layer_state_t default_layer_state_set_user(layer_state_t state) {
 }
 
 void housekeeping_task_user(void) {
+#ifdef ALEX_TELEMETRY_ENABLE
     telemetry_task();
     evlog_task();
+#endif
 
     if (!pending_profile_rebuild) return;
 
@@ -127,10 +142,12 @@ void housekeeping_task_user(void) {
 }
 
 bool process_record_user(uint16_t keycode, keyrecord_t *record) {
+#ifdef ALEX_TELEMETRY_ENABLE
     // Diagnostico (temporal): registrar el evento ANTES de cualquier lockdown,
     // para cazar tambien fantasmas de teclas de movimiento en Gaming. No-op si
     // el logger esta off. Se arranca por comando HID, no por keycode.
     evlog_record_event(keycode, record->event.pressed, record->event.key.row, record->event.key.col);
+#endif
 
     // Si estamos en modo Gaming (Interruptor fisico en Mac = Capas 0 y 1)
     if (analog_matrix_is_gaming_mode()) {
@@ -154,6 +171,14 @@ bool process_record_user(uint16_t keycode, keyrecord_t *record) {
             if (keycode == QK_BOOTLOADER || keycode == QK_REBOOT || keycode == QK_CLEAR_EEPROM) {
                 return false;
             }
+
+#ifdef EXTRAKEY_ENABLE
+            // Power/sleep/wake pueden interrumpir la sesion igual que un
+            // reboot del teclado y VIA permite remapearlos desde Launcher.
+            if (IS_SYSTEM_KEYCODE(keycode)) {
+                return false;
+            }
+#endif
 
             // Bloquear QK_MAGIC: GU_TOGG, NK_TOGG, swaps de Ctrl/GUI/Alt, etc.
             if (IS_QK_MAGIC(keycode)) {
