@@ -95,7 +95,14 @@ void telemetry_task(void) {
 //     [28] secuencia de paquete  [29..30] eventos descartados, LE
 //   key_idx: 0=W 1=A 2=S 3=D 4=SPC 5=LSFT 6=LCTL
 #define EVLOG_MAGIC 0xEC
-#define EVLOG_VERSION 2
+// v3: el byte `pressed` pasa a ser mascara de bits — bit0 = pulsada,
+// bit1 = FISICA (flanco crudo, antes de los stretches F6/F9). Sin ese bit, en un
+// build lab el evlog solo veia el estado ya clampeado y los eventos que el clamp
+// se come eran invisibles; medir fisico y reportado exigia dos sesiones con
+// drills distintos, que es la mayor fuente de error del A/B.
+#define EVLOG_VERSION 3
+#define EVLOG_PRESSED_BIT 0x01
+#define EVLOG_PHYSICAL_BIT 0x02
 #define EVLOG_RING 32
 #define EVLOG_MAX_PER_PKT 5
 STATIC_ASSERT(3 + EVLOG_MAX_PER_PKT * 5 <= 28, "Los eventos evlog no deben invadir metadata v2");
@@ -127,7 +134,7 @@ static int8_t evlog_key_index(uint16_t keycode) {
     }
 }
 
-void evlog_record_event(uint16_t keycode, bool pressed, uint8_t row, uint8_t col) {
+static void evlog_record(uint16_t keycode, bool pressed, uint8_t row, uint8_t col, bool physical) {
     if (!evlog_active) return;
     int8_t idx = evlog_key_index(keycode);
     if (idx < 0) return;
@@ -143,10 +150,24 @@ void evlog_record_event(uint16_t keycode, bool pressed, uint8_t row, uint8_t col
     evlog_event_t *e = &evlog_ring[(evlog_head + evlog_count) % EVLOG_RING];
     e->t       = timer_read();
     e->key_idx = (uint8_t)idx;
-    e->pressed = pressed ? 1 : 0;
+    e->pressed = (uint8_t)((pressed ? EVLOG_PRESSED_BIT : 0) | (physical ? EVLOG_PHYSICAL_BIT : 0));
     e->travel  = analog_matrix_get_travel(row, col);
     evlog_count++;
 }
+
+void evlog_record_event(uint16_t keycode, bool pressed, uint8_t row, uint8_t col) {
+    evlog_record(keycode, pressed, row, col, false);
+}
+
+#if ANALOG_POLICY_NEEDED
+// Override de la hook weak de common/: flanco FISICO de una tecla con stretch,
+// antes de que F9/F6 lo alteren. Corre dentro del barrido, asi que hace lo
+// minimo — el mismo trabajo que un evento normal del evlog, y solo en flancos de
+// las 2-3 teclas de la whitelist.
+void analog_matrix_physical_edge_hook(uint16_t keycode, bool pressed, uint8_t row, uint8_t col) {
+    evlog_record(keycode, pressed, row, col, true);
+}
+#endif
 
 void evlog_task(void) {
     if (!evlog_active || evlog_count == 0) return;
@@ -187,13 +208,38 @@ void evlog_task(void) {
 // respuestas — comparten endpoint.
 #define DIAG_CMD 0xEE
 enum {
-    DIAG_EVLOG_OFF = 0x00,
-    DIAG_EVLOG_ON  = 0x01,
-    DIAG_TELEM_OFF = 0x10,
-    DIAG_TELEM_ON  = 0x11,
+    DIAG_EVLOG_OFF   = 0x00,
+    DIAG_EVLOG_ON    = 0x01,
+    DIAG_TELEM_OFF   = 0x10,
+    DIAG_TELEM_ON    = 0x11,
+    DIAG_POLICY_DUMP = 0x20,
 };
 
-void kc_raw_hid_rx_user(uint8_t src, uint8_t *data, uint8_t length) {
+// Volcado de la politica resuelta (whitelists por keycode -> posiciones). Es
+// una consulta sin estado: responde y ya, no arranca ningun stream.
+//
+// Solo existe en builds con politica activa (lab). En torneo ANALOG_POLICY_NEEDED
+// es 0, no hay nada que volcar, y compilarlo romperia el invariante de que el
+// binario de torneo no crece por diagnostico opcional. En ese build el 0x20 cae
+// al camino de "comando desconocido" y apaga los diagnosticos, que es correcto.
+#if ANALOG_POLICY_NEEDED
+#    define POLICY_MAGIC 0xEB
+#    define POLICY_VERSION 1
+STATIC_ASSERT(2 + ANALOG_POLICY_DUMP_LEN <= TELEMETRY_EPSIZE, "El volcado de politica no cabe en un paquete Raw HID");
+
+static void policy_dump_send(void) {
+    uint8_t pkt[TELEMETRY_EPSIZE] = {0};
+    pkt[0]                        = POLICY_MAGIC;
+    pkt[1]                        = POLICY_VERSION;
+    analog_matrix_policy_dump(&pkt[2]);
+    raw_hid_send(pkt, TELEMETRY_EPSIZE);
+}
+#endif
+
+// El override de kc_raw_hid_rx_user vive en keymap.c (siempre compilado) y
+// delega aqui: la re-resolucion de la politica por keycode no puede depender de
+// ALEX_TELEMETRY_ENABLE, o apagar los diagnosticos la perderia en silencio.
+void telemetry_raw_hid_rx(uint8_t src, uint8_t *data, uint8_t length) {
     (void)src;
 
     if (length >= 2 && data[0] == DIAG_CMD) {
@@ -218,6 +264,11 @@ void kc_raw_hid_rx_user(uint8_t src, uint8_t *data, uint8_t length) {
             case DIAG_TELEM_OFF:
                 telemetry_active = false;
                 break;
+#if ANALOG_POLICY_NEEDED
+            case DIAG_POLICY_DUMP:
+                policy_dump_send();
+                break;
+#endif
         }
         return; // es nuestro comando: no apagar nada
     }

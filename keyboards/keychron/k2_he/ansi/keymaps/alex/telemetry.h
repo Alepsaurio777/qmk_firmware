@@ -17,3 +17,8 @@
 void telemetry_task(void);                                                        // housekeeping
 void evlog_task(void);                                                            // housekeeping
 void evlog_record_event(uint16_t keycode, bool pressed, uint8_t row, uint8_t col); // process_record_user
+
+// Lo llama el override de kc_raw_hid_rx_user en keymap.c. No es el override en
+// si: ese tiene que existir con o sin telemetria, porque tambien dispara la
+// re-resolucion de la politica por keycode cuando Launcher remapea.
+void telemetry_raw_hid_rx(uint8_t src, uint8_t *data, uint8_t length);

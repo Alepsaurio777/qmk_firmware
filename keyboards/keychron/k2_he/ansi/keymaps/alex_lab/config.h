@@ -47,3 +47,14 @@
 //    A=bit3, D=bit5 -> 0x28 (0x18 seria A+S: re-meteria a S y sacaria a D).
 #define ANALOG_PREDICTIVE_PRESS_KEY_MASK 0x29
 #define ANALOG_PREDICTIVE_REPRESS_KEY_MASK 0x28
+
+// F9: minimo-ON en el espacio (solo lab). Espejo de F6 y la otra mitad de lo
+// que jumpTicks necesita: F6 arregla el release no visto (siguiente salto hasta
+// 500 ms tarde), F9 arregla el press no visto (el salto no existio). Los dos
+// activos en el espacio dan 110 ms de ciclo en el peor caso para un tap — mal
+// numero en abstracto, buen numero contra los 500 ms que pagas hoy.
+// OJO al medir: el evlog cuelga de process_record_user, aguas abajo de los dos
+// stretches. El flanco FISICO llega por analog_matrix_physical_edge_hook, que
+// solo existe con uno de los dos encendido; por eso una sesion LAB ahora da los
+// dos histogramas y ya no hace falta cruzar dos drills distintos.
+#define ANALOG_PRESS_STRETCH_IN_GAMING_MODE 1

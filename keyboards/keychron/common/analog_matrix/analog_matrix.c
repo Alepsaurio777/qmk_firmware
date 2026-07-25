@@ -1063,6 +1063,24 @@ bool analog_matrix_get_key_state(uint8_t row, uint8_t col) {
 }
 
 #if ANALOG_RELEASE_STRETCH_IN_GAMING_MODE
+#    if ANALOG_PRESS_STRETCH_IN_GAMING_MODE
+static inline int8_t press_stretch_slot(uint8_t row, uint8_t col); // definido mas abajo
+#    endif
+
+// El flanco FISICO lo reporta el PRIMER filtro de la cadena (F9 -> F6), que es
+// el unico que ve el estado sin alterar. Si F9 cubre esta tecla, F6 se calla:
+// lo que F6 recibe ya viene estirado por F9, y reportarlo daria un flanco falso
+// desplazado hasta ANALOG_PRESS_STRETCH_MS.
+static inline bool physical_edge_owned_by_press_stretch(uint8_t row, uint8_t col) {
+#    if ANALOG_PRESS_STRETCH_IN_GAMING_MODE
+    return press_stretch_slot(row, col) >= 0;
+#    else
+    (void)row;
+    (void)col;
+    return false;
+#    endif
+}
+
 // F6: minimo de tiempo OFF *reportado* tras un release fisico (racional en
 // analog_matrix.h). Vive en la capa de reporte — la FSM del RT y el travel
 // siguen intactos — y se aplica en los dos paths de escaneo, que llaman aqui
@@ -1081,6 +1099,11 @@ static release_stretch_t release_stretch[2];
 // La rellena analog_matrix_resolve_policy_keys() desde el keymap vivo.
 static uint8_t release_stretch_row[2] = {0xFF, 0xFF};
 static uint8_t release_stretch_col[2] = {0xFF, 0xFF};
+
+// Keycode con el que se declaro cada slot. Fuente unica: lo usan la resolucion
+// y el hook de flanco fisico, que necesita identificar la tecla sin volver a
+// leer el keymap.
+static const uint16_t release_stretch_keycodes[2] = {ANALOG_RELEASE_STRETCH_KEY1_KEYCODE, ANALOG_RELEASE_STRETCH_KEY2_KEYCODE};
 
 static inline int8_t release_stretch_slot(uint8_t row, uint8_t col) {
     // 0xFF nunca es una fila valida, asi que un slot apagado no coincide nunca.
@@ -1110,11 +1133,80 @@ bool analog_matrix_release_stretch_apply(uint8_t row, uint8_t col, bool pressed)
         s->deadline   = timer_read() + ANALOG_RELEASE_STRETCH_MS;
         s->stretching = true;
     }
+    if (s->prev_pressed != pressed && !physical_edge_owned_by_press_stretch(row, col)) {
+        analog_matrix_physical_edge_hook(release_stretch_keycodes[slot], pressed, row, col);
+    }
     s->prev_pressed = pressed;
 
     if (s->stretching) {
         if (!timer_expired(timer_read(), s->deadline)) return false;
         s->stretching = false; // expirada: el press fisico (si sigue ahi) pasa ya
+    }
+
+    return pressed;
+}
+#endif
+
+#if ANALOG_POLICY_NEEDED
+// Weak por defecto: el binario sin telemetria no paga nada y common/ no aprende
+// nada del keymap. Solo se llama en flancos fisicos de teclas con stretch (2 o 3
+// teclas), nunca por barrido.
+__attribute__((weak)) void analog_matrix_physical_edge_hook(uint16_t keycode, bool pressed, uint8_t row, uint8_t col) {
+    (void)keycode;
+    (void)pressed;
+    (void)row;
+    (void)col;
+}
+#endif
+
+#if ANALOG_PRESS_STRETCH_IN_GAMING_MODE
+// F9: minimo de tiempo ON *reportado* tras un press fisico (racional en
+// analog_matrix.h). Mismo sitio y mismas reglas que F6 — capa de reporte, la FSM
+// y el travel intactos — pero en el flanco opuesto: sostiene el ON en vez de el
+// OFF. Un slot: solo el espacio.
+typedef struct {
+    uint16_t deadline;     // timer_read() en el que expira la ventana ON
+    bool     stretching;   // ventana activa: el release fisico se reporta ON
+    bool     prev_pressed; // estado FISICO previo (detecta el flanco de press)
+} press_stretch_t;
+
+static press_stretch_t press_stretch[1];
+static uint8_t         press_stretch_row[1] = {0xFF};
+static uint8_t         press_stretch_col[1] = {0xFF};
+
+static const uint16_t press_stretch_keycodes[1] = {ANALOG_PRESS_STRETCH_KEY1_KEYCODE};
+
+static inline int8_t press_stretch_slot(uint8_t row, uint8_t col) {
+    if (press_stretch_row[0] == row && press_stretch_col[0] == col) return 0;
+    return -1;
+}
+
+bool analog_matrix_press_stretch_apply(uint8_t row, uint8_t col, bool pressed) {
+    int8_t slot = press_stretch_slot(row, col);
+    if (slot < 0) return pressed;
+
+    press_stretch_t *s = &press_stretch[slot];
+
+    // Fuera de Gaming el filtro no aplica. Limpiar aqui evita arrastrar una
+    // ventana a medias al volver (su deadline de 16 bits, tras >32 s de wrap,
+    // volveria a parecer futura y colaria un ON espurio).
+    if (!analog_matrix_is_gaming_mode()) {
+        s->stretching   = false;
+        s->prev_pressed = pressed;
+        return pressed;
+    }
+
+    if (!s->prev_pressed && pressed) {
+        // Flanco de press fisico: abrir (o re-abrir) la ventana ON minima.
+        s->deadline   = timer_read() + ANALOG_PRESS_STRETCH_MS;
+        s->stretching = true;
+    }
+    if (s->prev_pressed != pressed) analog_matrix_physical_edge_hook(press_stretch_keycodes[slot], pressed, row, col);
+    s->prev_pressed = pressed;
+
+    if (s->stretching) {
+        if (!timer_expired(timer_read(), s->deadline)) return true;
+        s->stretching = false; // expirada: el estado fisico manda ya
     }
 
     return pressed;
@@ -1162,14 +1254,18 @@ void analog_matrix_resolve_policy_keys(void) {
         release_stretch_row[i] = 0xFF;
         release_stretch_col[i] = 0xFF;
     }
-    const uint16_t stretch_keycodes[2] = {ANALOG_RELEASE_STRETCH_KEY1_KEYCODE, ANALOG_RELEASE_STRETCH_KEY2_KEYCODE};
+#    endif
+#    if ANALOG_PRESS_STRETCH_IN_GAMING_MODE
+    memset(press_stretch, 0, sizeof(press_stretch));
+    press_stretch_row[0] = 0xFF;
+    press_stretch_col[0] = 0xFF;
 #    endif
 
     for (uint8_t row = 0; row < MATRIX_ROWS; row++) {
         for (uint8_t col = 0; col < MATRIX_COLS; col++) {
             const keypos_t pos = {.row = row, .col = col};
             const uint16_t kc  = keymap_key_to_keycode(ANALOG_POLICY_LAYER, pos);
-            if (kc == KC_NO || kc == KC_TRANSPARENT) continue;
+            if (kc == KC_NO || kc == KC_TRANSPARENT) continue; // hueco o herencia: no es una tecla
 
             const matrix_row_t bit = (matrix_row_t)1 << col;
 
@@ -1192,14 +1288,65 @@ void analog_matrix_resolve_policy_keys(void) {
                 // Primera coincidencia gana: el estado del stretch es por slot,
                 // asi que dos posiciones con el mismo keycode no pueden
                 // compartirlo sin pisarse la ventana OFF.
-                if (stretch_keycodes[i] == KC_NO || kc != stretch_keycodes[i]) continue;
+                if (release_stretch_keycodes[i] == KC_NO || kc != release_stretch_keycodes[i]) continue;
                 if (release_stretch_row[i] != 0xFF) continue;
                 release_stretch_row[i] = row;
                 release_stretch_col[i] = col;
             }
 #    endif
+
+#    if ANALOG_PRESS_STRETCH_IN_GAMING_MODE
+            // Primera coincidencia gana, mismo motivo que F6: el estado vive por
+            // slot y dos posiciones no pueden compartir la ventana ON.
+            if (press_stretch_keycodes[0] != KC_NO && kc == press_stretch_keycodes[0] && press_stretch_row[0] == 0xFF) {
+                press_stretch_row[0] = row;
+                press_stretch_col[0] = col;
+            }
+#    endif
         }
     }
+}
+
+// Empaqueta una coordenada resuelta en un byte. Ver el layout en analog_matrix.h.
+static inline uint8_t policy_pack_coord(uint8_t row, uint8_t col) {
+    if (row >= MATRIX_ROWS || col >= MATRIX_COLS) return 0xFF;
+    return (uint8_t)((row << 4) | col);
+}
+
+static inline void policy_pack_mask(uint8_t *out, const matrix_row_t *mask) {
+    for (uint8_t r = 0; r < MATRIX_ROWS; r++) {
+        const uint16_t v = mask ? (uint16_t)mask[r] : 0;
+        out[r * 2]       = (uint8_t)(v & 0xFF);
+        out[r * 2 + 1]   = (uint8_t)(v >> 8);
+    }
+}
+
+void analog_matrix_policy_dump(uint8_t *out) {
+    memset(out, 0, ANALOG_POLICY_DUMP_LEN);
+
+    out[0] = (uint8_t)((ANALOG_PREDICTIVE_ACTUATION_IN_GAMING_MODE ? 0x01 : 0) | (ANALOG_RELEASE_STRETCH_IN_GAMING_MODE ? 0x02 : 0) | (ANALOG_PRESS_STRETCH_IN_GAMING_MODE ? 0x04 : 0) | (ANALOG_CONTINUOUS_RAPID_TRIGGER_IN_GAMING_MODE ? 0x08 : 0));
+
+#if ANALOG_PREDICTIVE_ACTUATION_IN_GAMING_MODE
+    policy_pack_mask(&out[1], analog_predictive_press_mask);
+    policy_pack_mask(&out[13], analog_predictive_repress_mask);
+#else
+    policy_pack_mask(&out[1], NULL);
+    policy_pack_mask(&out[13], NULL);
+#endif
+
+#if ANALOG_RELEASE_STRETCH_IN_GAMING_MODE
+    out[25] = policy_pack_coord(release_stretch_row[0], release_stretch_col[0]);
+    out[26] = policy_pack_coord(release_stretch_row[1], release_stretch_col[1]);
+#else
+    out[25] = 0xFF;
+    out[26] = 0xFF;
+#endif
+
+#if ANALOG_PRESS_STRETCH_IN_GAMING_MODE
+    out[27] = policy_pack_coord(press_stretch_row[0], press_stretch_col[0]);
+#else
+    out[27] = 0xFF;
+#endif
 }
 #endif
 

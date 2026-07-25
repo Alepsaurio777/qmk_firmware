@@ -18,6 +18,9 @@
 #include "analog_matrix.h"
 #include "keychron_common.h"
 #include "profile.h"
+#ifdef VIA_ENABLE
+#    include "via.h"
+#endif
 #ifdef ALEX_TELEMETRY_ENABLE
 #    include "telemetry.h"
 #endif
@@ -113,6 +116,44 @@ static inline void schedule_profile_rebuild(uint8_t profile_index) {
     pending_profile_rebuild = true;
 }
 
+// ---------------------------------------------------------------------------
+// Raw HID: unico override de kc_raw_hid_rx_user del keymap
+// ---------------------------------------------------------------------------
+// via_command_kb() se llama en la PRIMERA linea de raw_hid_receive (via.c),
+// antes del switch de VIA, y encadena hasta aqui. O sea que este punto ve TODOS
+// los paquetes VIA, no solo los que VIA no entiende — incluidos los que
+// reescriben el keymap dinamico.
+//
+// Eso importa porque las whitelists por keycode se resuelven en
+// update_travel_configs(), que no corre en un remap. Sin esto, remapear W desde
+// Launcher deja la politica en la posicion vieja hasta el siguiente boot,
+// cambio de perfil o giro del interruptor.
+//
+// El override vive aqui y no en telemetry.c (donde estaba) para no acoplar la
+// re-resolucion a ALEX_TELEMETRY_ENABLE: apagar los diagnosticos no debe
+// apagar esto en silencio.
+#if ANALOG_POLICY_NEEDED
+static bool pending_policy_resolve = false;
+#endif
+
+void kc_raw_hid_rx_user(uint8_t src, uint8_t *data, uint8_t length) {
+#if ANALOG_POLICY_NEEDED && defined(VIA_ENABLE)
+    // Diferido a housekeeping: aqui estamos en el callback de USB y la
+    // resolucion barre la matriz entera leyendo el keymap dinamico.
+    if (length >= 1 && (data[0] == id_dynamic_keymap_set_keycode || data[0] == id_dynamic_keymap_set_buffer)) {
+        pending_policy_resolve = true;
+    }
+#endif
+
+#ifdef ALEX_TELEMETRY_ENABLE
+    telemetry_raw_hid_rx(src, data, length);
+#else
+    (void)src;
+    (void)data;
+    (void)length;
+#endif
+}
+
 layer_state_t default_layer_state_set_user(layer_state_t state) {
     if (state & (1UL << WIN_BASE)) {
         // Defer profile rebuild until default_layer_state has been committed.
@@ -127,6 +168,16 @@ void housekeeping_task_user(void) {
 #ifdef ALEX_TELEMETRY_ENABLE
     telemetry_task();
     evlog_task();
+#endif
+
+#if ANALOG_POLICY_NEEDED
+    // Remap desde Launcher: recolocar las whitelists por keycode. Se hace antes
+    // del rebuild de perfil de abajo porque ese ya llama a la resolucion, y asi
+    // no la corremos dos veces en el mismo tick de housekeeping.
+    if (pending_policy_resolve) {
+        pending_policy_resolve = false;
+        if (!pending_profile_rebuild) analog_matrix_resolve_policy_keys();
+    }
 #endif
 
     if (!pending_profile_rebuild) return;

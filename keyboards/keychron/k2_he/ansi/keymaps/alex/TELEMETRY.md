@@ -125,7 +125,49 @@ el caso de Wooting: implementar histéresis/dead-zone adaptativa cerca del
 reposo en esos modificadores. Para F6, decide el histograma de ventanas OFF,
 no la sensación. Decidir con los datos, no antes.
 
-Formato de paquete v2 (32 B): `[0]=0xEC [1]=2 [2]=N`, luego N×5 bytes
-`[t_lo, t_hi, key_idx, pressed, travel]`. key_idx: 0=W 1=A 2=S 3=D 4=SPC
+Formato de paquete **v3** (32 B): `[0]=0xEC [1]=3 [2]=N`, luego N×5 bytes
+`[t_lo, t_hi, key_idx, flags, travel]`. key_idx: 0=W 1=A 2=S 3=D 4=SPC
 5=LSFT 6=LCTL. `[28]=secuencia`; `[29..30]=eventos descartados` LE. El
 cliente rechaza otras versiones y marca como incompleta cualquier pérdida.
+
+`flags` es máscara de bits: **bit0 = pulsada**, **bit1 = flanco FÍSICO** (crudo,
+antes de los stretches F6/F9). En v2 ese byte era un booleano.
+
+### Los dos flujos: reportado vs físico
+
+El evlog cuelga de `process_record_user`, o sea **aguas abajo** de F6 y F9. En un
+build de torneo eso da igual (sin stretch, reportado == físico), pero en un build
+lab el clamp se come justo los eventos que hay que contar: los taps de <55 ms en
+W/SPC. Medir las dos cosas exigía dos sesiones con drills distintos, y que dos
+drills «iguales» sean comparables es la mayor fuente de error del A/B.
+
+Con v3, el firmware emite además el flanco físico vía
+`analog_matrix_physical_edge_hook` (weak en `common/`, override en
+`telemetry.c`), que se dispara **dentro** de las funciones de stretch — ya
+detectan el flanco y sólo corren para las 2-3 teclas de la whitelist, así que no
+cuesta nada en el barrido. Reportan el keycode con el que se declaró el slot, no
+sólo la coordenada, para no tener que leer el keymap en el hot path.
+
+Cuando F6 y F9 se encadenan en la misma tecla, el flanco físico lo reporta **el
+primero de la cadena** (F9), que es el único que ve el estado sin alterar; F6 se
+calla en esa tecla para no emitir un flanco falso desplazado hasta 55 ms.
+
+El cliente lleva los dos flujos por separado e imprime el histograma de ventanas
+OFF **dos veces** — `REPORTADO` y `FÍSICO` — de la misma sesión, así que son
+directamente comparables. El CSV gana una columna `src` (`rep` / `fis`).
+
+## Volcado de la política resuelta (`--policy`)
+
+`python telemetry_client.py --policy` manda `0xEE 0x20` y el firmware responde
+con un paquete `[0]=0xEB [1]=1` + 29 bytes: flags de qué features están
+compiladas, las máscaras predictivas por fila, y las coordenadas resueltas de los
+slots de F6 y F9 (empaquetadas `(row << 4) | col`, `0xFF` = sin resolver).
+
+Sirve para responder en dos segundos la pregunta que antes exigía una sesión de
+evlog: **¿a qué teclas físicas aterrizaron las whitelists declaradas por
+keycode?** Útil sobre todo tras un remap en Launcher.
+
+Sólo responde en builds con política activa (lab). En torneo `ANALOG_POLICY_NEEDED`
+es 0, no hay nada que volcar, y compilarlo rompería el invariante de que el
+binario de torneo no crece por diagnóstico opcional — el `0x20` cae ahí al camino
+de «comando desconocido» y apaga los diagnósticos.

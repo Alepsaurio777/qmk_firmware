@@ -180,6 +180,14 @@
 #define ANALOG_RELEASE_STRETCH_KEY1_KEYCODE KC_W
 #define ANALOG_RELEASE_STRETCH_KEY2_KEYCODE KC_SPACE
 
+// F9 (lab): minimo-ON, la otra mitad de lo que el espacio necesita. Solo
+// espacio, porque es la unica tecla cuya mecanica ES el press: si el juego no
+// ve el ON, el salto no existio. W no lo lleva — su mecanica la dispara que se
+// vea el OFF (eso es F6) y extender su ON seria movimiento no pedido.
+// El espacio lleva F6 y F9 a la vez a proposito: jumpTicks falla de dos formas
+// distintas y cada una pide una garantia distinta. Racional en analog_matrix.h.
+#define ANALOG_PRESS_STRETCH_KEY1_KEYCODE KC_SPACE
+
 // Tap-hold configurations to make spacebar/other keys feel responsive if mapped as layer-taps or mod-taps
 #define TAPPING_TERM 175
 #define QUICK_TAP_TERM 120

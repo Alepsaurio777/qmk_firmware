@@ -71,6 +71,7 @@ qmk compile -kb keychron/k2_he/ansi -km alex_lab
 | `USB_SOF_TIMING_PROBE` | **no** | **sí** | Instrumentación de duración/fase del barrido |
 | `ANALOG_PREDICTIVE_ACTUATION_IN_GAMING_MODE` | **0** | **1** | RT predictivo por velocidad (especulativo) |
 | `ANALOG_RELEASE_STRETCH_IN_GAMING_MODE` | **0** | **1** | F6: OFF reportado ≥55 ms tras release físico de W/SPC (el tick de 50 ms de MC siempre lo ve) |
+| `ANALOG_PRESS_STRETCH_IN_GAMING_MODE` | **0** | **1** | F9: ON reportado ≥55 ms tras press físico de SPC. Espejo de F6 y la otra mitad de `jumpTicks` — F6 arregla el release no visto (siguiente salto hasta 500 ms tarde), F9 el press no visto (el salto no existió). Los dos activos en SPC dan 110 ms de ciclo en el peor caso, contra los 500 ms de hoy |
 | `ANALOG_PREDICTIVE_PRESS_KEY_MASK` / `_REPRESS_KEY_MASK` | 0x3F (inertes) | **0x29 / 0x28** | F7: whitelist predictiva por camino — press SPC+A+D; re-press solo A+D (con F6, predecir el re-press de SPC no adelanta nada y difiere el fantasma) |
 
 El timestamp del SOF lo provee `usb_main.c` mientras `ANALOG_SCAN_SOF_SYNC` **o** `USB_SOF_TIMING_PROBE` estén activos, así que el torneo tiene sync sin arrastrar el probe.

@@ -340,11 +340,55 @@ static inline bool analog_matrix_is_gaming_mode(void) {
 #    define ANALOG_RELEASE_STRETCH_IN_GAMING_MODE 0
 #endif
 
+// Tick de cliente de MC 1.8.9. No es un parametro que se ajuste: es un hecho
+// del juego, y de el se derivan los pisos de las dos ventanas de stretch.
+#ifndef ANALOG_TICK_REFERENCE_MS
+#    define ANALOG_TICK_REFERENCE_MS 50
+#endif
+
 // 55 ms > tick de 50 ms: garantiza >=1 muestreo del estado OFF con el peor
 // alineamiento de fase respecto al tick del cliente.
 #ifndef ANALOG_RELEASE_STRETCH_MS
 #    define ANALOG_RELEASE_STRETCH_MS 55
 #endif
+
+// ----- F9: minimo-ON anclado al tick ---------------------------------------
+// El espejo de F6, y la otra mitad de lo que el espacio necesita. `jumpTicks`
+// falla de DOS formas distintas y cada una pide una garantia distinta:
+//
+//   press no visto (ON < 1 tick)   -> el salto no existio         -> F9
+//   release no visto (OFF < 1 tick)-> jumpTicks no se resetea,
+//                                     siguiente salto hasta 500 ms tarde -> F6
+//
+// Por eso el espacio lleva las DOS y no hay que elegir. Se encadenan F9 -> F6
+// (ver el punto de llamada en analog_matrix_scan.c: el orden es load-bearing).
+// Coste combinado en el peor caso: 55 + 55 = 110 ms de ciclo para un tap, que
+// es la comparacion que importa contra los 500 ms del salto perdido de hoy.
+//
+// Tras un flanco de press fisico, el estado reportado se sostiene en ON durante
+// >= ANALOG_PRESS_STRETCH_MS aunque el dedo suelte. No sintetiza un press que no
+// hiciste: sostiene uno que si hiciste. Solo actua en modo Gaming.
+//
+// Un slot, no dos: la unica tecla cuya MECANICA es el ON es el espacio. W no lo
+// necesita (su mecanica la dispara que se vea el OFF, que es F6) y extender el
+// ON de W seria movimiento no pedido — mortal en un borde de sumo.
+#ifndef ANALOG_PRESS_STRETCH_IN_GAMING_MODE
+#    define ANALOG_PRESS_STRETCH_IN_GAMING_MODE 0
+#endif
+
+#ifndef ANALOG_PRESS_STRETCH_MS
+#    define ANALOG_PRESS_STRETCH_MS 55
+#endif
+
+#ifndef ANALOG_PRESS_STRETCH_KEY1_KEYCODE
+#    define ANALOG_PRESS_STRETCH_KEY1_KEYCODE KC_NO
+#endif
+
+// La razon de existir de las dos ventanas es SUPERAR el tick del cliente. Un
+// valor <= 50 no las hace mas rapidas: las deja pagando la latencia entera y
+// sin comprar el muestreo. Falla el build en vez de degradarse en silencio.
+STATIC_ASSERT(ANALOG_RELEASE_STRETCH_MS > ANALOG_TICK_REFERENCE_MS, "ANALOG_RELEASE_STRETCH_MS debe superar el tick del cliente o la garantia no existe");
+STATIC_ASSERT(ANALOG_PRESS_STRETCH_MS > ANALOG_TICK_REFERENCE_MS, "ANALOG_PRESS_STRETCH_MS debe superar el tick del cliente o la garantia no existe");
 
 #ifndef ANALOG_RELEASE_STRETCH_KEY1_KEYCODE
 #    define ANALOG_RELEASE_STRETCH_KEY1_KEYCODE KC_NO
@@ -360,10 +404,31 @@ static inline bool analog_matrix_is_gaming_mode(void) {
 // El hot path solo hace un test de bit y ya no sabe nada de slots ni de
 // keycodes. ANALOG_POLICY_NEEDED es 0 en el binario de torneo, asi que todo
 // esto (incluido el barrido de resolucion) se compila fuera.
-#define ANALOG_POLICY_NEEDED (ANALOG_CONTINUOUS_RAPID_TRIGGER_IN_GAMING_MODE || ANALOG_PREDICTIVE_ACTUATION_IN_GAMING_MODE || ANALOG_RELEASE_STRETCH_IN_GAMING_MODE)
+#define ANALOG_POLICY_NEEDED (ANALOG_CONTINUOUS_RAPID_TRIGGER_IN_GAMING_MODE || ANALOG_PREDICTIVE_ACTUATION_IN_GAMING_MODE || ANALOG_RELEASE_STRETCH_IN_GAMING_MODE || ANALOG_PRESS_STRETCH_IN_GAMING_MODE)
 
 #if ANALOG_POLICY_NEEDED
 void analog_matrix_resolve_policy_keys(void);
+
+// ----- Volcado de diagnostico de la politica resuelta -----------------------
+// Hace observable lo que antes solo se podia razonar: a que posiciones fisicas
+// aterrizaron las whitelists declaradas por keycode. Sin esto, verificar un
+// remap exige una sesion de evlog; con esto es una consulta.
+//
+// Layout de los ANALOG_POLICY_DUMP_LEN bytes que rellena:
+//   [0]      flags: bit0 predictivo, bit1 release-stretch (F6),
+//            bit2 press-stretch (F9), bit3 continuous RT
+//   [1..12]  analog_predictive_press_mask,   6 filas x uint16 LE
+//   [13..24] analog_predictive_repress_mask, 6 filas x uint16 LE
+//   [25]     slot 0 de F6, empaquetado (row << 4) | col — 0xFF sin resolver
+//   [26]     slot 1 de F6, idem
+//   [27]     slot 0 de F9, idem
+//   [28]     reservado (0)
+// Continuous RT reporta solo su bit de flags: esta apagado y su mascara no
+// justifica 12 bytes hasta que se use.
+#define ANALOG_POLICY_DUMP_LEN 29
+void analog_matrix_policy_dump(uint8_t *out);
+
+STATIC_ASSERT(MATRIX_ROWS <= 15 && MATRIX_COLS <= 16, "El empaquetado (row << 4) | col del volcado necesita row <= 15 y col <= 15");
 
 static inline bool analog_policy_bit(const matrix_row_t *mask, uint8_t row, uint8_t col) {
     if (row >= MATRIX_ROWS || col >= MATRIX_COLS) return false;
@@ -432,6 +497,24 @@ bool analog_matrix_release_stretch_apply(uint8_t row, uint8_t col, bool pressed)
 // Compilado fuera en el binario estable: passthrough textual, costo cero.
 #    define analog_matrix_release_stretch_apply(row, col, pressed) (pressed)
 #endif
+
+#if ANALOG_PRESS_STRETCH_IN_GAMING_MODE
+bool analog_matrix_press_stretch_apply(uint8_t row, uint8_t col, bool pressed);
+#else
+#    define analog_matrix_press_stretch_apply(row, col, pressed) (pressed)
+#endif
+
+// Flanco FISICO de una tecla con stretch, antes de que el filtro lo altere.
+// Weak y vacia por defecto: la telemetria del keymap la override para poder
+// medir el estado fisico y el reportado en la MISMA sesion (el evlog cuelga de
+// process_record_user, o sea aguas abajo de los dos stretches, y por si solo no
+// puede ver lo que el clamp se come).
+//
+// Lleva el keycode CON EL QUE SE DECLARO el slot, no solo la coordenada: el
+// consumidor necesita identificar la tecla y resolverla desde el keymap aqui
+// significaria leer la EEPROM dentro del barrido. La firma coincide a proposito
+// con la del registrador del evlog.
+void analog_matrix_physical_edge_hook(uint16_t keycode, bool pressed, uint8_t row, uint8_t col);
 bool         analog_matrix_calibrating(void);
 matrix_row_t analog_matrix_get_row(uint8_t row);
 void         analog_matrix_rx(uint8_t *data, uint8_t length);

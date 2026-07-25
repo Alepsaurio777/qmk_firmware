@@ -78,6 +78,26 @@ Validado el 13-jul: fase estable *incluso con teclas activas y RT disparando*.
   (19-jul) + columna `fallo^` = Σ(1−d/50)/taps, la tasa esperada de taps
   invisibles (go/no-go del criterio #1), y columna `stretch` = ventanas en
   55-57 ms (conteo de disparos del clamp F6 en builds lab).
+- **F9 Mínimo-ON en el espacio** (24-jul, SOLO `alex_lab`): el espejo de F6.
+  `jumpTicks` falla de **dos** formas distintas y cada una pide su garantía —
+  *press* no visto (ON < 1 tick) ⇒ **el salto no existió**; *release* no visto
+  (OFF < 1 tick) ⇒ `jumpTicks` no se resetea y el siguiente salto llega hasta
+  500 ms tarde. Por eso el espacio lleva **F6 y F9 a la vez** y no hay que
+  elegir. Se encadenan **F9 → F6** y el orden es load-bearing: al revés, F6
+  vería el release físico, abriría su ventana OFF en t=0 y pelearía contra el ON
+  que F9 sostiene. Encadenados se **apilan**, que es lo correcto — el OFF tiene
+  que verse *después* de que el ON se viera, porque son dos muestreos distintos.
+  Coste peor caso 55+55 = **110 ms** de ciclo para un tap; mal número en
+  abstracto, 4.5x a favor contra los 500 ms que se pagan hoy. Un solo slot: W no
+  lo lleva (su mecánica la dispara que se vea el OFF, y extender su ON sería
+  movimiento no pedido — mortal en un borde de sumo). Misma capa de reporte que
+  F6: no toca FSM ni travel, no sintetiza un press que no hiciste — sostiene uno
+  que sí hiciste.
+- **Instrumentación (24-jul)**: el evlog pasa a **v3** con bit de flanco
+  *físico*, así que una sola sesión da los histogramas reportado **y** físico y
+  ya no hay que cruzar dos drills distintos (era la mayor fuente de error del
+  A/B). Y `--policy` (comando `0xEE 0x20`) vuelca la política por keycode ya
+  resuelta a posiciones. Detalles en TELEMETRY.md.
 - **F8 CANDIDATO, NO construido — ON-stretch para S** (s-tap, la 3ª mecánica
   de reset): con par SOCD W/S, el OFF de W que ve el juego lo genera el
   ENMASCARADO de SOCD, no un release físico de W — F6 no lo clampea (el
@@ -113,6 +133,20 @@ Validado el 13-jul: fase estable *incluso con teclas activas y RT disparando*.
 - [ ] F7: verificar que S/W ya no predicen (prensa rápida superficial no
       dispara antes del cruce físico) y que SPC (solo primer press) y A/D
       siguen prediciendo
+- [ ] **Efecto observador del evlog** (24-jul, va PRIMERO): `telemetry_task` se
+      auto-apaga en Gaming, pero `evlog_task` no — y no debe, medir en Gaming es
+      su razón de ser. O sea que durante una sesión armada manda paquetes Raw HID
+      desde housekeeping, al lado del barrido; y como el barrido está anclado al
+      SOF con espera acotada a 400 µs, una iteración larga no lo retrasa: le hace
+      **perder la ventana**. Correr el probe con el evlog armado vs en reposo y
+      cuantificarlo. Sin esto no sabes cuánto valen los demás números. Ojo: el
+      probe es solo-lab y la sesión crítica del evlog es solo-torneo.
+- [ ] F9: verificar que un tap corto de espacio produce ≥55 ms de ON reportado
+      (columna `src=rep`) mientras el `src=fis` muestra la duración real, y que
+      encadenado con F6 el ciclo completo no pasa de ~110 ms
+- [ ] `--policy` en hardware: confirmar que los slots salen en W (2,2) y SPC
+      (5,6), y que tras remapear W en Launcher la coordenada se mueve **sin**
+      girar el interruptor (eso valida la re-resolución en caliente)
 - [ ] Verificar en hardware la resolución por keycode (24-jul): remapear W a
       otra posición desde Launcher, girar el interruptor a Win y volver, y
       confirmar con el evlog que el release-stretch y la predicción siguen a la

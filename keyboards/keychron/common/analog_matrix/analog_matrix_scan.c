@@ -258,7 +258,13 @@ void matrix_read_rows_on_col(uint8_t current_col, matrix_row_t row_shifter) {
 
             update_raw_value(row_index, current_col, samples[row_index]);
 
-            bool pressed = analog_matrix_release_stretch_apply(row_index, current_col, analog_matrix_get_key_state(row_index, current_col));
+            // ORDEN LOAD-BEARING: F9 (minimo-ON) antes de F6 (minimo-OFF). Al
+            // reves, F6 veria el release FISICO, abriria su ventana OFF en t=0 y
+            // pelearia contra el ON que F9 esta sosteniendo. Encadenados en este
+            // orden se apilan, que es lo correcto: el OFF tiene que verse DESPUES
+            // de que el ON se viera, porque son dos muestreos de tick distintos.
+            bool pressed = analog_matrix_press_stretch_apply(row_index, current_col, analog_matrix_get_key_state(row_index, current_col));
+            pressed      = analog_matrix_release_stretch_apply(row_index, current_col, pressed);
             if (pressed) {
                 if ((analog_raw_matrix[row_index] & row_mask) == 0) changed = true;
 
@@ -309,7 +315,10 @@ static void process_col_samples(uint8_t col, matrix_row_t row_shifter, const adc
 
         update_raw_value(row_index, col, smp[row_index]);
 
-        bool pressed = analog_matrix_release_stretch_apply(row_index, col, analog_matrix_get_key_state(row_index, col));
+        // Orden load-bearing F9 -> F6, mismo racional que en
+        // matrix_read_rows_on_col (ver comentario alli).
+        bool pressed = analog_matrix_press_stretch_apply(row_index, col, analog_matrix_get_key_state(row_index, col));
+        pressed      = analog_matrix_release_stretch_apply(row_index, col, pressed);
         if (pressed) {
             if ((analog_raw_matrix[row_index] & row_shifter) == 0) changed = true;
             row_value |= (0x01 << row_index);
