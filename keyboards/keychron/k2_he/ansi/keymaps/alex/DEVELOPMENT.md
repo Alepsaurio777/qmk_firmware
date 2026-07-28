@@ -33,7 +33,19 @@ Bien (se compila fuera cuando el flag está off):
 
 La prueba de que quedó bien aislado: el **delta de tamaño** entre los dos `.bin`. Si `alex` no creció al añadir la feature, está fuera de verdad.
 
-Referencia actual (25-jul): **`alex` 54288 B**, **`alex_lab` 56680 B**.
+Referencia actual (28-jul): **`alex` 54296 B**, **`alex_lab` 56680 B**.
+
+Y ya no se comprueba a ojo. `tools/check-size-invariant.sh` lleva las dos
+baselines y **falla el build si cualquiera se mueve**, en cualquier dirección —
+crecer puede ser una feature de lab fugada, encoger puede ser algo que se compiló
+fuera sin querer. Subir la baseline es un commit deliberado con el motivo escrito,
+que es exactamente la declaración que antes sólo existía en la cabeza de quien
+compilaba.
+
+```bash
+make keychron/k2_he/ansi:alex keychron/k2_he/ansi:alex_lab
+./keyboards/keychron/k2_he/ansi/keymaps/alex/tools/check-size-invariant.sh
+```
 
 Matiz importante sobre el invariante: sólo aplica a **features experimentales
 detrás de un flag**. No aplica a arreglos de corrección en código que está en
