@@ -39,6 +39,12 @@ static const uint16_t telemetry_keycodes[] = {
 };
 #define TELEMETRY_KEY_COUNT ARRAY_SIZE(telemetry_keycodes)
 
+// Las teclas ocupan [6 .. 6 + N*2), y la metadata v2 empieza en [18]. Con 6
+// teclas queda justo a ras (6 + 12 = 18): una septima corromperia el timing en
+// silencio y el sintoma apareceria en el cliente, no aqui. Hermano del assert
+// del evlog mas abajo.
+STATIC_ASSERT(6 + TELEMETRY_KEY_COUNT * 2 <= 18, "Las teclas de travel invaden la metadata v2");
+
 // Posiciones resueltas (0xFF = ese keycode no esta en la capa base de Gaming).
 static uint8_t telemetry_key_row[TELEMETRY_KEY_COUNT];
 static uint8_t telemetry_key_col[TELEMETRY_KEY_COUNT];
