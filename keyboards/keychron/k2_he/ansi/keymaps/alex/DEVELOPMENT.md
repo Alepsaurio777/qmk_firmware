@@ -106,3 +106,72 @@ no** (F6/F9/F8), no el que lo hace llegar antes.
 **El #3 no es una puerta de promoción, es una puerta de «esto lo corro en un
 servidor real»**. Una feature puede fallar el #1, #2 o #4 y seguir siendo un
 experimento legítimo en `alex_lab`. Si falla el #3, no se construye ni ahí.
+
+## Guardas del modo Gaming
+
+`process_record_user` bloquea en Gaming: macros VIA, layer-switch, cambio de
+perfil, bootloader/reboot/EEPROM, power/sleep/wake del host (flashear =
+interruptor en Win), QK_MAGIC, keycodes wireless. LGUI **no** se bloquea: se
+queda en el keymap, porque desactivar Win en Gaming es preferencia por tecla y
+Launcher ya la resuelve — el firmware no fija lo que la config puede fijar.
+
+`config.h` sí desactiva en Gaming OKMC, toggle, gamepad y combos de perfil. Es
+la única excepción deliberada a esa regla, y se mantiene a sabiendas: son los
+modos que **sintetizan o enganchan input**.
+
+Canal Raw HID en Gaming: blacklist mínima (`RESET_PROFILE` y `CALIBRATE`). La
+whitelist de solo-lectura se probó y se revirtió el mismo día — el tuning real
+exige el modo Gaming activo (el perfil gaming sólo corre ahí) y el lockdown
+rompía ese flujo. Si el endurecimiento vuelve, el diseño aparcado es la
+**escotilla de tuning**: desbloqueo por `0xEE` con timeout ~10 min y recierre al
+girar el interruptor. Nunca una whitelist permanente.
+
+SOCD está desbloqueado en Gaming (Rappy Snappy). Zona gris: no prohibido
+explícitamente en Minemen/Hypixel, baneado en CS2/ESL.
+
+## Gotchas conocidos
+
+- Las whitelists por keycode (continuous RT, RT predictivo, release/press
+  stretch) y las teclas vigiladas por la telemetría se resuelven contra
+  `ANALOG_POLICY_LAYER` en `update_travel_configs()` — boot, cambio de perfil y
+  giro del interruptor — más la re-resolución en caliente tras un remap de VIA.
+  **La coincidencia de keycode es exacta**: un `KC_W` envuelto en mod-tap o
+  layer-tap no entra. Si un keycode no está en la capa base de Gaming, esa tecla
+  reporta travel 0 en vez de leer fuera de rango. Si dos posiciones dan el mismo
+  keycode, el release-stretch (estado por slot) se queda con la primera en orden
+  de barrido; las máscaras predictivas marcan las dos.
+- El cliente de telemetría apaga el diagnóstico en `finally` al salir, cerrar la
+  gráfica o fallar. Cualquier comando de Launcher también lo auto-apaga (comparten
+  endpoint).
+- Los defaults RT por perfil sólo aplican en perfiles **reseteados**; la EEPROM
+  con valores de Launcher siempre gana.
+- El bottom-out aprendido nunca se encoge: al cambiar un switch por otro de imán
+  más débil, recalibrar a mano desde Launcher.
+- Compilar en shell no interactivo: MSYS2 vacía `USERPROFILE` y `qmk` muere con
+  *"Could not determine home directory"*. Ruta que funciona desde Windows:
+  ```
+  C:\msys64\msys2_shell.cmd -mingw64 -defterm -no-start -where C:\Users\Alex\keychron-qmk -c "make keychron/k2_he/ansi:alex"
+  ```
+
+## Deuda técnica conocida
+
+- **Parches en QMK core** (`quantum/action.c`, `action_util.c`,
+  `tmk_core/protocol/report.c`): refcount por keycode y modificador en el path de
+  reporte. Arregla un bug real de upstream, pero cada rebase contra QMK va a
+  doler. Aislado en su propio commit (`42cd346`) para bisecarlo o replicarlo.
+  Añadido a esa lista: `usb_main.c` exporta `usb_sof_timing_last_cycles`, del que
+  cuelga todo el SOF-sync.
+- **El repo es un clon shallow.** `merge-base` no resuelve y cualquier merge
+  contra Keychron da *"refusing to merge unrelated histories"*. Hace falta
+  `git fetch --unshallow` contra el remoto de Keychron (no contra `origin`, que
+  es el fork propio).
+- **QMK mainline va 3 ciclos de breaking changes por delante** del árbol
+  (`20250831` aquí vs `20260531` en master). Eso lo arrastra Keychron, no
+  nosotros, pero fija el coste de cualquier rebase futuro.
+
+## Historial
+
+`historial/ROADMAP-2026-07-12_25-cerrado.md` — registro congelado de las fases
+F0-F9, la tabla antes/después de la cadena de latencia, el inventario de
+mecánicas de tick y la lista de ideas descartadas con su razón. Se consulta antes
+de proponer algo «nuevo»: la mayoría ya está descartada ahí, con motivo.

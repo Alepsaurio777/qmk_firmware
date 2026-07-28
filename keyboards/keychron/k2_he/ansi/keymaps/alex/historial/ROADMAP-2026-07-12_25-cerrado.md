@@ -1,3 +1,18 @@
+> **ARCHIVADO el 28-jul-2026. Documento histórico, congelado, no se edita.**
+>
+> El roadmap se cierra porque su propio inventario del 25-jul lo cerró: la cadena
+> de latencia está agotada aritméticamente y de la clase F6/F9/F8 sólo queda F8,
+> condicionado a decisiones de Launcher, no a código. Mantener un roadmap abierto
+> con un solo candidato condicionado era ceremonia, no planificación.
+>
+> Lo que **seguía vivo** se movió a `DEVELOPMENT.md` (documento operativo):
+> gotchas, guardas del modo Gaming y deuda técnica. Lo de aquí abajo es el
+> registro de lo que se hizo y por qué — se consulta, no se actualiza.
+>
+> Las casillas `[ ]` de «Validación pendiente» quedan sin marcar a propósito:
+> son sesiones de hardware que nunca se corrieron. Si algún día se corren, el
+> resultado va a `DEVELOPMENT.md` o a un archivo de resultados, no aquí.
+
 # K2 HE firmware custom — registro del proyecto
 ### Sesiones 12 jul – 25 jul 2026 · Lo medido, medido con la telemetría propia sobre hardware real
 
