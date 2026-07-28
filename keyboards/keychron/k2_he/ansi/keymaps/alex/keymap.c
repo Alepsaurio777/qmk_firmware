@@ -140,9 +140,18 @@ static bool pending_keymap_resolve = false;
 
 void kc_raw_hid_rx_user(uint8_t src, uint8_t *data, uint8_t length) {
 #ifdef VIA_ENABLE
-    // Diferido a housekeeping: aqui estamos en el callback de USB y resolver
-    // barre la matriz entera leyendo el keymap dinamico.
-    if (length >= 1 && (data[0] == id_dynamic_keymap_set_keycode || data[0] == id_dynamic_keymap_set_buffer)) {
+    // Diferido a housekeeping: no por concurrencia (raw_hid_task() corre en el
+    // bucle principal, mismo hilo que housekeeping_task_user), sino porque
+    // resolver barre la matriz entera leyendo el keymap dinamico y no queremos
+    // ese coste dentro del drenaje del endpoint, que procesa un paquete por
+    // iteracion. Por eso pending_keymap_resolve tampoco necesita volatile.
+    //
+    // id_dynamic_keymap_reset (0x06) tiene que estar aqui: dynamic_keymap_reset()
+    // reescribe el keymap entero sin reiniciar el teclado, asi que tras un
+    // "Reset Keymap" en Launcher las teclas vigiladas y las whitelists quedarian
+    // ancladas a las posiciones previas hasta boot, cambio de perfil o giro del
+    // interruptor. Es el mismo fallo que la resolucion por keycode vino a matar.
+    if (length >= 1 && (data[0] == id_dynamic_keymap_set_keycode || data[0] == id_dynamic_keymap_set_buffer || data[0] == id_dynamic_keymap_reset)) {
         pending_keymap_resolve = true;
     }
 #endif
@@ -190,6 +199,13 @@ void housekeeping_task_user(void) {
 #endif
         // El rebuild de perfil de abajo ya llama a la resolucion de la politica,
         // asi que no la repetimos en el mismo tick de housekeeping.
+        //
+        // Este skip depende de que el camino de abajo SIEMPRE resuelva. Lo hace:
+        // profile_select() solo devuelve false con prof_idx >= PROFILE_COUNT
+        // (imposible aqui, el indice es 0 o 1 literal), y tanto la rama de
+        // cambio de perfil como el update_travel_configs() explicito acaban
+        // llamando a analog_matrix_resolve_policy_keys(). Si eso cambia, este
+        // skip se vuelve una fuga silenciosa de la re-resolucion.
         if (!pending_profile_rebuild) analog_matrix_resolve_policy_keys();
     }
 
