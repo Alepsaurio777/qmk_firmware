@@ -181,6 +181,34 @@ explícitamente en Minemen/Hypixel, baneado en CS2/ESL.
   (`20250831` aquí vs `20260531` en master). Eso lo arrastra Keychron, no
   nosotros, pero fija el coste de cualquier rebase futuro.
 
+## Tests de host
+
+`common/analog_matrix/hosttest/` compila los `.c` REALES (FSM del rapid trigger,
+F6/F9, resolución por keycode, histograma) contra shims de QMK, con reloj y
+keymap falsos. Regla del directorio: **no se copia lógica del firmware**; si un
+test pasa, es sobre el mismo código que corre en el teclado.
+
+```bash
+cd keyboards/keychron/common/analog_matrix/hosttest && make run
+```
+
+Cada suite se compila **dos veces**, con los flags de los dos binarios. En torneo
+eso comprueba además que los stretches son de verdad passthrough. Necesita gcc de
+host (`pacman -S mingw-w64-x86_64-gcc`).
+
+## Histograma de ventanas
+
+Vive en los **dos** binarios — decisión deliberada con coste declarado, mismo
+argumento que la telemetría: la comparación torneo/lab necesita medir los dos.
+Cuenta duraciones de ventana ON/OFF en cubos cortados en el tick de 50 ms, en
+capa física y reportada. Comandos `0xEE 0x30/0x31/0x32`. Racional completo en
+`common/analog_matrix/window_histogram.h`.
+
+## Auditoría del batch del 1-ago
+
+`AUDITORIA.md` — qué revisar de las 6 olas, ordenado por riesgo, con lo que está
+verificado y lo que no.
+
 ## Historial
 
 `historial/ROADMAP-2026-07-12_25-cerrado.md` — registro congelado de las fases
