@@ -164,14 +164,17 @@ typedef struct {
     bool     prev_pressed; // estado FISICO previo (detecta el flanco de press)
 } press_stretch_t;
 
-static press_stretch_t press_stretch[1];
-static uint8_t         press_stretch_row[1] = {0xFF};
-static uint8_t         press_stretch_col[1] = {0xFF};
+static press_stretch_t press_stretch[PRESS_STRETCH_SLOTS];
+static uint8_t         press_stretch_row[PRESS_STRETCH_SLOTS] = {[0 ... PRESS_STRETCH_SLOTS - 1] = 0xFF};
+static uint8_t         press_stretch_col[PRESS_STRETCH_SLOTS] = {[0 ... PRESS_STRETCH_SLOTS - 1] = 0xFF};
 
-static const uint16_t press_stretch_keycodes[1] = {ANALOG_PRESS_STRETCH_KEY1_KEYCODE};
+static const uint16_t press_stretch_keycodes[PRESS_STRETCH_SLOTS] = {ANALOG_PRESS_STRETCH_KEY1_KEYCODE, ANALOG_PRESS_STRETCH_KEY2_KEYCODE};
 
 static inline int8_t press_stretch_slot(uint8_t row, uint8_t col) {
-    if (press_stretch_row[0] == row && press_stretch_col[0] == col) return 0;
+    // 0xFF nunca es una fila valida, asi que un slot apagado no coincide nunca.
+    for (uint8_t i = 0; i < PRESS_STRETCH_SLOTS; i++) {
+        if (press_stretch_row[i] == row && press_stretch_col[i] == col) return (int8_t)i;
+    }
     return -1;
 }
 
@@ -251,8 +254,10 @@ void analog_matrix_resolve_policy_keys(void) {
 #    endif
 #    if ANALOG_PRESS_STRETCH_IN_GAMING_MODE
     memset(press_stretch, 0, sizeof(press_stretch));
-    press_stretch_row[0] = 0xFF;
-    press_stretch_col[0] = 0xFF;
+    for (uint8_t i = 0; i < PRESS_STRETCH_SLOTS; i++) {
+        press_stretch_row[i] = 0xFF;
+        press_stretch_col[i] = 0xFF;
+    }
 #    endif
 
     for (uint8_t row = 0; row < MATRIX_ROWS; row++) {
@@ -292,9 +297,11 @@ void analog_matrix_resolve_policy_keys(void) {
 #    if ANALOG_PRESS_STRETCH_IN_GAMING_MODE
             // Primera coincidencia gana, mismo motivo que F6: el estado vive por
             // slot y dos posiciones no pueden compartir la ventana ON.
-            if (press_stretch_keycodes[0] != KC_NO && kc == press_stretch_keycodes[0] && press_stretch_row[0] == 0xFF) {
-                press_stretch_row[0] = row;
-                press_stretch_col[0] = col;
+            for (uint8_t i = 0; i < PRESS_STRETCH_SLOTS; i++) {
+                if (press_stretch_keycodes[i] == KC_NO || kc != press_stretch_keycodes[i]) continue;
+                if (press_stretch_row[i] != 0xFF) continue;
+                press_stretch_row[i] = row;
+                press_stretch_col[i] = col;
             }
 #    endif
         }

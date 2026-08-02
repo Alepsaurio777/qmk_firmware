@@ -58,3 +58,18 @@
 // solo existe con uno de los dos encendido; por eso una sesion LAB ahora da los
 // dos histogramas y ya no hace falta cruzar dos drills distintos.
 #define ANALOG_PRESS_STRETCH_IN_GAMING_MODE 1
+
+// F9 en LSHIFT (slot 2). Aqui y no en torneo, que es exactamente donde debe
+// vivir un experimento sin validar: alex_lab es el binario donde se rompen
+// cosas. El keycode se declara en k2_he/config.h y es inerte con el flag
+// apagado, asi que el binario de torneo no lo compila — comprobado: `alex` no
+// se movio ni un byte al anadirlo.
+//
+// Lo que decide si esto se promociona NO es como se siente: es el drill D1 del
+// plan de diagnostico, que mide en el binario de TORNEO que fraccion de presses
+// de LSHIFT al bridgear dura menos de un tick. Si sale ~0, esto se apaga para
+// siempre y habra costado 20 minutos de drill en vez de un ciclo entero.
+//
+// Coste conocido si se enciende: en 1.8.9 el sneak cancela el sprint, asi que
+// 55 ms de shift forzado obligan a re-doble-tap de W. Eso hay que verlo en el
+// histograma de W, no en la sensacion.

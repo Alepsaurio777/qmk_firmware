@@ -188,6 +188,24 @@
 // distintas y cada una pide una garantia distinta. Racional en analog_matrix.h.
 #define ANALOG_PRESS_STRETCH_KEY1_KEYCODE KC_SPACE
 
+// (1-ago) Segundo slot de F9: LSHIFT. Inerte mientras
+// ANALOG_PRESS_STRETCH_IN_GAMING_MODE este apagado, o sea SIEMPRE en torneo;
+// alex_lab lo enciende para poder medirlo.
+//
+// El razonamiento que lo mete aqui es el ESPEJO del que dejaba a Shift fuera: es
+// cierto que un *unshift* no visto al bridgear es un fallo seguro (te quedas
+// agachado y lento), pero el caso contrario no lo es — un *press* de shift no
+// visto en un borde es una caida. F9 sostiene un press real y no sintetiza
+// ninguno, asi que pasa el criterio #3, y cambia si el juego ve el input, asi
+// que pasa el #4.
+//
+// ANTES DE PROMOCIONARLO: el drill D1 mide, en el binario de TORNEO y con el
+// histograma, que fraccion de presses de LSHIFT al bridgear dura menos de un
+// tick. Si es ~0, esto se queda apagado para siempre y costo 20 minutos en vez
+// de un ciclo de lab. Coste conocido si se enciende: en 1.8.9 el sneak cancela
+// el sprint, asi que 55 ms de shift forzado obligan a re-doble-tap de W.
+#define ANALOG_PRESS_STRETCH_KEY2_KEYCODE KC_LEFT_SHIFT
+
 // (1-ago) Histograma de ventanas ON/OFF + contadores de salud. EN LOS DOS
 // BINARIOS, y el coste hay que decirlo: el binario de torneo crece de forma
 // permanente por diagnostico, que es una desviacion de "torneo minimo". Lo que

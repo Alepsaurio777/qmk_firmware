@@ -1,0 +1,65 @@
+name: K2 HE (alex) — build, invariante y tests de host
+
+# (1-ago) Antes esto no existia: los workflows de .github/ son los de QMK
+# upstream, y las tres comprobaciones que de verdad protegen este teclado
+# —compilar los dos binarios, el invariante de aislamiento y los tests de la
+# logica— dependian de que alguien se acordara de correrlas a mano.
+#
+# Los tests de host son lo primero a proposito: tardan segundos y no necesitan
+# toolchain ARM, asi que un fallo de logica se ve antes de esperar dos builds.
+
+on:
+  push:
+    paths:
+      - 'keyboards/keychron/k2_he/**'
+      - 'keyboards/keychron/common/analog_matrix/**'
+      - '.github/workflows/k2he_alex.yml'
+  pull_request:
+    paths:
+      - 'keyboards/keychron/k2_he/**'
+      - 'keyboards/keychron/common/analog_matrix/**'
+  workflow_dispatch:
+
+jobs:
+  hosttest:
+    name: Tests de host (FSM, F6/F9, histograma)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Cada suite se compila en las DOS configuraciones (torneo y lab). En
+      # torneo eso comprueba ademas que los stretches son de verdad passthrough.
+      - name: make run
+        working-directory: keyboards/keychron/common/analog_matrix/hosttest
+        run: make run
+
+  firmware:
+    name: Binarios + invariante de aislamiento
+    runs-on: ubuntu-latest
+    container: ghcr.io/qmk/qmk_cli
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Compilar los dos binarios
+        run: |
+          make keychron/k2_he/ansi:alex
+          make keychron/k2_he/ansi:alex_lab
+
+      # Tamano contra baseline (alarma de humo) + ausencia de simbolos de lab en
+      # el binario de torneo (el diagnostico). Si el toolchain del contenedor da
+      # numeros distintos a los de la maquina de desarrollo, el paso de simbolos
+      # sigue siendo valido y el de bytes hay que reconciliarlo — por eso el
+      # script distingue los dos fallos.
+      - name: Invariante
+        run: ./keyboards/keychron/k2_he/ansi/keymaps/alex/tools/check-size-invariant.sh
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: k2he-binarios
+          path: |
+            .build/keychron_k2_he_ansi_alex.hex
+            .build/keychron_k2_he_ansi_alex_lab.hex
+          if-no-files-found: warn

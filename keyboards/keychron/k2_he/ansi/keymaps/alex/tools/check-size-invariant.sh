@@ -21,6 +21,10 @@ set -u
 
 # Baselines.
 #
+# 1-ago-2026 (Ola F, F9 slot 2 = LSHIFT): alex 55844 SIN CAMBIOS —prueba de que
+# el segundo slot se compila FUERA del torneo— y alex_lab 58088 -> 58252 (+164).
+# Feature de lab, correctamente aislada.
+#
 # 1-ago-2026 (Ola D, hot path): alex 55872 -> 55844 (-28), alex_lab
 # 58276 -> 58088 (-188). Encogen: una sola copia del procesado por tecla en vez
 # de dos, y analog_matrix_effective_mode() con salida rapida por modo antes de
@@ -56,7 +60,7 @@ set -u
 # id_dynamic_keymap_reset que faltaba en la lista de re-resolucion — correccion,
 # no feature). alex_lab 56680.
 BASE_ALEX=55844
-BASE_LAB=58088
+BASE_LAB=58252
 
 BUILD_DIR="${BUILD_DIR:-.build}"
 FAIL=0
@@ -110,6 +114,37 @@ check() {
 
 check keychron_k2_he_ansi_alex     "$BASE_ALEX"
 check keychron_k2_he_ansi_alex_lab "$BASE_LAB"
+
+# ---------------------------------------------------------------------------
+# Invariante por SIMBOLOS (1-ago)
+# ---------------------------------------------------------------------------
+# Los bytes son un proxy: fallan igual ante una fuga de lab que ante un bump de
+# toolchain o un cambio del linker script. Esto comprueba lo que el invariante
+# QUIERE decir — "el codigo de lab no esta en el binario de torneo" — mirando si
+# sus simbolos existen. Las dos capas se complementan: los bytes son la alarma de
+# humo, los simbolos el diagnostico.
+LAB_ONLY_SYMBOLS='stretch|predictive|scan_probe|policy'
+
+check_symbols() {
+    local elf="$BUILD_DIR/keychron_k2_he_ansi_alex.elf"
+    [ -f "$elf" ] || return 0
+
+    local leaked
+    leaked=$(arm-none-eabi-nm "$elf" 2>/dev/null | grep -iE "$LAB_ONLY_SYMBOLS" || true)
+
+    if [ -n "$leaked" ]; then
+        FAIL=1
+        echo "FALLA    simbolos de lab presentes en el binario de TORNEO:"
+        echo "$leaked" | sed 's/^/           /'
+        echo "         El #if FLAG esta mal puesto: ese codigo ocupa flash y ciclos"
+        echo "         en \`alex\` aunque el flag este apagado en runtime."
+    else
+        printf 'OK       %-28s sin simbolos de lab
+' "invariante por simbolos"
+    fi
+}
+
+check_symbols
 
 if [ "$FAIL" -ne 0 ]; then
     cat <<'EOF'

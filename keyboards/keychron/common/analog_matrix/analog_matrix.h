@@ -388,6 +388,25 @@ static inline bool analog_matrix_is_gaming_mode(void) {
 #    define ANALOG_PRESS_STRETCH_KEY1_KEYCODE KC_NO
 #endif
 
+// (1-ago) Segundo slot de F9. El comentario de arriba decia "un slot, no dos:
+// la unica tecla cuya MECANICA es el ON es el espacio". Sigue siendo cierto para
+// el espacio, pero deja fuera el caso ESPEJO y peligroso: en 1.8.9 un *unshift*
+// no visto al bridgear es un fallo seguro (te quedas agachado, lento), mientras
+// que un *press* de shift no visto en un borde es una CAIDA. F9 sostiene un
+// press real sin sintetizar ninguno, asi que pasa el criterio #3 igual que en el
+// espacio, y cambia si el juego ve el input, asi que pasa el #4.
+//
+// Su coste es real y medible: en 1.8.9 el sneak cancela el sprint, asi que 55 ms
+// de shift forzado obligan a re-doble-tap de W. Por eso es un experimento de
+// alex_lab con el histograma delante, NO una suposicion de torneo. El drill que
+// decide si merece la pena construirlo siquiera es medir, en el binario de
+// TORNEO, que fraccion de presses de LSHIFT al bridgear duran menos de un tick.
+#ifndef ANALOG_PRESS_STRETCH_KEY2_KEYCODE
+#    define ANALOG_PRESS_STRETCH_KEY2_KEYCODE KC_NO
+#endif
+
+#define PRESS_STRETCH_SLOTS 2
+
 // La razon de existir de las dos ventanas es SUPERAR el tick del cliente. Un
 // valor <= 50 no las hace mas rapidas: las deja pagando la latencia entera y
 // sin comprar el muestreo. Falla el build en vez de degradarse en silencio.
