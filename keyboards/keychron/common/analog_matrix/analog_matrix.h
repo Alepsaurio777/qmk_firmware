@@ -18,6 +18,10 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+// (1-ago) size_t lo usa analog_matrix_eeprom_update() mas abajo. En el build de
+// firmware colaba porque algun header de QMK lo arrastraba antes; el header no
+// era auto-contenido y se vio al compilarlo desde el harness de host.
+#include <stddef.h>
 #include "action_layer.h"
 #include "compiler_support.h"
 #include "keycodes.h"
