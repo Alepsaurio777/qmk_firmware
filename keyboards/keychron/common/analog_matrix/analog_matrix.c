@@ -235,23 +235,34 @@ static inline uint8_t analog_matrix_base_mode(uint8_t row, uint8_t col) {
     return key_cfg->mode == AKM_GLOBAL ? cur_prof->global.mode : key_cfg->mode;
 }
 
+// (1-ago) Salida rapida antes de tocar nada mas. Los unicos modos que Gaming
+// degrada son los AVANZADOS, y en el perfil de torneo ninguna tecla los usa: o
+// sea que practicamente el 100% de las llamadas del barrido salian por el final
+// habiendo leido default_layer_state hasta TRES veces (una por rama). Preguntar
+// primero por el modo —un valor que ya esta en registro— lo deja en una
+// comparacion.
+//
+// Se eligio esto y NO cachear el modo efectivo en analog_key_t. La cache habria
+// sido algo mas rapida, pero crea una clase de bug nueva: quedarse rancia si
+// alguna ruta futura cambia el modo sin pasar por update_key_config(). Este
+// proyecto ya pago un bug de esa familia con la union de analog_key_t, y no
+// merece la pena cambiar riesgo por un par de por ciento de barrido.
 static inline uint8_t analog_matrix_effective_mode(uint8_t row, uint8_t col, uint8_t mode) {
+    switch (mode) {
 #    if ANALOG_DISABLE_OKMC_IN_GAMING_MODE
-    if (mode == AKM_DKS && analog_matrix_is_gaming_mode()) {
-        return analog_matrix_base_mode(row, col);
-    }
+        case AKM_DKS:
 #    endif
 #    if ANALOG_DISABLE_TOGGLE_IN_GAMING_MODE
-    if (mode == AKM_TOGGLE && analog_matrix_is_gaming_mode()) {
-        return analog_matrix_base_mode(row, col);
-    }
+        case AKM_TOGGLE:
 #    endif
 #    if ANALOG_DISABLE_GAMEPAD_IN_GAMING_MODE
-    if (mode == AKM_GAMEPAD && analog_matrix_is_gaming_mode()) {
-        return analog_matrix_base_mode(row, col);
-    }
+        case AKM_GAMEPAD:
 #    endif
-    return mode;
+            return analog_matrix_is_gaming_mode() ? analog_matrix_base_mode(row, col) : mode;
+
+        default:
+            return mode;
+    }
 }
 #else
 static inline uint8_t analog_matrix_effective_mode(uint8_t row, uint8_t col, uint8_t mode) {

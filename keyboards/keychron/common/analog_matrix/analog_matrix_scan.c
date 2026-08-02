@@ -231,6 +231,31 @@ static void unselect_col(uint8_t col) {
 void        select_all_cols(void) {}
 static void unselect_cols(void) {}
 
+// (1-ago) UNA sola copia del procesado de una tecla. Antes esta secuencia estaba
+// duplicada literalmente en matrix_read_rows_on_col() y en process_col_samples()
+// —comentario de "ORDEN LOAD-BEARING" incluido— y un arreglo aplicado a una copia
+// y no a la otra era invisible hasta que alguien tocaba ANALOG_SCAN_PIPELINE.
+//
+// El ORDEN de la cadena es load-bearing y por eso vive aqui, en un solo sitio:
+// F9 (minimo-ON) ANTES de F6 (minimo-OFF). Al reves, F6 veria el release FISICO,
+// abriria su ventana OFF en t=0 y pelearia contra el ON que F9 esta sosteniendo.
+// Encadenados en este orden se apilan, que es lo correcto: el OFF tiene que
+// verse DESPUES de que el ON se viera, porque son dos muestreos de tick
+// distintos.
+//
+// El histograma ve las DOS capas —el dedo y lo que sale al cable—. En torneo
+// coinciden; en lab la distancia entre ellas es lo que el clamp rescato.
+static inline bool analog_process_key_sample(uint8_t row, uint8_t col, uint16_t sample) {
+    update_raw_value(row, col, sample);
+
+    const bool physical = analog_matrix_get_key_state(row, col);
+    bool       pressed  = analog_matrix_press_stretch_apply(row, col, physical);
+    pressed             = analog_matrix_release_stretch_apply(row, col, pressed);
+
+    analog_window_hist_observe(row, col, physical, pressed);
+    return pressed;
+}
+
 void matrix_read_rows_on_col(uint8_t current_col, matrix_row_t row_shifter) {
     // Select col
     if (!select_col(current_col)) {
@@ -257,20 +282,7 @@ void matrix_read_rows_on_col(uint8_t current_col, matrix_row_t row_shifter) {
         for (uint8_t row_index = 0; row_index < MATRIX_ROWS; row_index++) {
             if ((analog_matrix_mask[row_index] & row_mask) == 0) continue;
 
-            update_raw_value(row_index, current_col, samples[row_index]);
-
-            // ORDEN LOAD-BEARING: F9 (minimo-ON) antes de F6 (minimo-OFF). Al
-            // reves, F6 veria el release FISICO, abriria su ventana OFF en t=0 y
-            // pelearia contra el ON que F9 esta sosteniendo. Encadenados en este
-            // orden se apilan, que es lo correcto: el OFF tiene que verse DESPUES
-            // de que el ON se viera, porque son dos muestreos de tick distintos.
-            const bool physical = analog_matrix_get_key_state(row_index, current_col);
-            bool       pressed  = analog_matrix_press_stretch_apply(row_index, current_col, physical);
-            pressed             = analog_matrix_release_stretch_apply(row_index, current_col, pressed);
-            // El histograma ve las DOS capas: el dedo (physical) y lo que sale al
-            // cable (pressed). En torneo coinciden; en lab la distancia entre
-            // ellas es lo que el clamp de F6/F9 rescato.
-            analog_window_hist_observe(row_index, current_col, physical, pressed);
+            const bool pressed = analog_process_key_sample(row_index, current_col, samples[row_index]);
             if (pressed) {
                 if ((analog_raw_matrix[row_index] & row_mask) == 0) changed = true;
 
@@ -319,14 +331,7 @@ static void process_col_samples(uint8_t col, matrix_row_t row_shifter, const adc
     for (uint8_t row_index = 0; row_index < MATRIX_ROWS; row_index++) {
         if ((analog_matrix_mask[row_index] & row_shifter) == 0) continue;
 
-        update_raw_value(row_index, col, smp[row_index]);
-
-        // Orden load-bearing F9 -> F6, mismo racional que en
-        // matrix_read_rows_on_col (ver comentario alli).
-        const bool physical = analog_matrix_get_key_state(row_index, col);
-        bool       pressed  = analog_matrix_press_stretch_apply(row_index, col, physical);
-        pressed             = analog_matrix_release_stretch_apply(row_index, col, pressed);
-        analog_window_hist_observe(row_index, col, physical, pressed);
+        const bool pressed = analog_process_key_sample(row_index, col, smp[row_index]);
         if (pressed) {
             if ((analog_raw_matrix[row_index] & row_shifter) == 0) changed = true;
             row_value |= (0x01 << row_index);

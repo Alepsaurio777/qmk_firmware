@@ -21,6 +21,11 @@ set -u
 
 # Baselines.
 #
+# 1-ago-2026 (Ola D, hot path): alex 55872 -> 55844 (-28), alex_lab
+# 58276 -> 58088 (-188). Encogen: una sola copia del procesado por tecla en vez
+# de dos, y analog_matrix_effective_mode() con salida rapida por modo antes de
+# leer default_layer_state.
+#
 # 1-ago-2026 (Ola C, config de torneo en git): alex 55388 -> 55872 (+484),
 # alex_lab 57848 -> 58276 (+428). Decision, no fuga: profile_reset() ahora
 # siembra afinado por tecla y el par SOCD A/D resolviendo keycodes contra el
@@ -50,8 +55,8 @@ set -u
 # 28-jul-2026: alex 54296 (era 54288; +8 por el arreglo B1, el
 # id_dynamic_keymap_reset que faltaba en la lista de re-resolucion — correccion,
 # no feature). alex_lab 56680.
-BASE_ALEX=55872
-BASE_LAB=58276
+BASE_ALEX=55844
+BASE_LAB=58088
 
 BUILD_DIR="${BUILD_DIR:-.build}"
 FAIL=0
