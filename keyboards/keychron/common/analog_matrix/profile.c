@@ -20,6 +20,7 @@
 #include "game_controller_common.h"
 #include "profile.h"
 #include "action_socd.h"
+#include "keymap_common.h"
 #include "eeconfig.h"
 #include "eeprom.h"
 #include "nvm_eeprom_eeconfig_internal.h"
@@ -128,6 +129,86 @@ static uint32_t                 pro_ind_timer  = 0;
 // un hardcode invisible en Launcher. Los defaults de modo por tecla ya viven
 // en default_profiles[] (perfil 1 marca WASD/espacio/LShift/LCtrl como Rapid),
 // que es una tabla de reset y por tanto pisable desde Launcher.
+
+// Weak: un teclado sin afinado por tecla no paga nada y profile_reset() se
+// comporta exactamente como antes. Los define k2_he/ansi/profiles.c.
+__attribute__((weak)) const profile_key_tuning_t *profile_key_tuning(uint8_t prof_idx) {
+    (void)prof_idx;
+    return NULL;
+}
+
+__attribute__((weak)) const profile_socd_seed_t *profile_socd_seeds(uint8_t prof_idx) {
+    (void)prof_idx;
+    return NULL;
+}
+
+// Siembra el afinado por tecla y los pares SOCD de la tabla de reset,
+// resolviendo los keycodes contra el keymap VIVO. Un solo barrido de la matriz
+// con las listas (cortas) por dentro, mismo patron que
+// analog_matrix_resolve_policy_keys(). Solo corre en un reset de perfil.
+static void profile_apply_seeds(uint8_t prof_index, analog_matrix_profile_t *prof) {
+    const profile_key_tuning_t *tuning = profile_key_tuning(prof_index);
+    const profile_socd_seed_t  *socd   = profile_socd_seeds(prof_index);
+    if (!tuning && !socd) return;
+
+    // Posiciones resueltas de los keycodes que aparecen en los pares SOCD.
+    uint8_t socd_row[SOCD_COUNT * 2];
+    uint8_t socd_col[SOCD_COUNT * 2];
+    uint8_t socd_n = 0;
+    if (socd) {
+        for (uint8_t i = 0; i < SOCD_COUNT && socd[i].type != 0; i++) socd_n = (uint8_t)(i + 1);
+    }
+    for (uint8_t i = 0; i < socd_n * 2 && i < SOCD_COUNT * 2; i++) {
+        socd_row[i] = 0xFF;
+        socd_col[i] = 0xFF;
+    }
+
+    for (uint8_t row = 0; row < MATRIX_ROWS; row++) {
+        for (uint8_t col = 0; col < MATRIX_COLS; col++) {
+            const keypos_t pos = {.row = row, .col = col};
+            const uint16_t kc  = keymap_key_to_keycode(ANALOG_POLICY_LAYER, pos);
+            if (kc == KC_NO || kc == KC_TRANSPARENT) continue;
+
+            if (tuning) {
+                for (uint8_t i = 0; tuning[i].keycode != KC_NO; i++) {
+                    if (kc != tuning[i].keycode) continue;
+                    // Los campos son bitfields de 6 bits: fuera de rango se
+                    // ignora en vez de truncarse en silencio.
+                    if (tuning[i].act_pt && tuning[i].act_pt <= 39) prof->key_config[row][col].act_pt = tuning[i].act_pt;
+                    if (tuning[i].sen && tuning[i].sen <= 39) prof->key_config[row][col].rpd_trig_sen = tuning[i].sen;
+                    if (tuning[i].sen_rls && tuning[i].sen_rls <= 39) prof->key_config[row][col].rpd_trig_sen_deact = tuning[i].sen_rls;
+                }
+            }
+
+            for (uint8_t i = 0; i < socd_n; i++) {
+                // Primera coincidencia gana, igual que en la politica.
+                if (kc == socd[i].keycode_1 && socd_row[i * 2] == 0xFF) {
+                    socd_row[i * 2] = row;
+                    socd_col[i * 2] = col;
+                } else if (kc == socd[i].keycode_2 && socd_row[i * 2 + 1] == 0xFF) {
+                    socd_row[i * 2 + 1] = row;
+                    socd_col[i * 2 + 1] = col;
+                }
+            }
+        }
+    }
+
+    // Un par solo se siembra si SUS DOS teclas existen en la capa. Media pareja
+    // resuelta seria peor que ninguna: SOCD con una coordenada invalida se
+    // descarta en runtime, pero deja el slot ocupado y mintiendo en Launcher.
+    for (uint8_t i = 0; i < socd_n; i++) {
+        const uint8_t r1 = socd_row[i * 2], c1 = socd_col[i * 2];
+        const uint8_t r2 = socd_row[i * 2 + 1], c2 = socd_col[i * 2 + 1];
+        if (r1 >= MATRIX_ROWS || r2 >= MATRIX_ROWS) continue;
+        if (r1 == r2 && c1 == c2) continue; // misma tecla: invalido
+
+        prof->socd[i].key_1_row = r1;
+        prof->socd[i].key_1_col = c1;
+        prof->socd[i].key_2_row = r2;
+        prof->socd[i].key_2_col = c2;
+        prof->socd[i].type      = socd[i].type;
+    }
+}
 
 void profile_init(bool reset) {
     if (reset) {
@@ -378,6 +459,8 @@ bool profile_reset(uint8_t prof_index) {
                 prof->key_config[r][c].js_axis = default_profiles[prof_index][r][c] >> 5;
             }
         }
+
+    profile_apply_seeds(prof_index, prof);
 
     profile_save(prof_index);
     if (prof_index == profile_get_current_index()) socd_update_active_state();

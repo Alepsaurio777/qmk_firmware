@@ -21,6 +21,12 @@ set -u
 
 # Baselines.
 #
+# 1-ago-2026 (Ola C, config de torneo en git): alex 55388 -> 55872 (+484),
+# alex_lab 57848 -> 58276 (+428). Decision, no fuga: profile_reset() ahora
+# siembra afinado por tecla y el par SOCD A/D resolviendo keycodes contra el
+# keymap vivo. Antes la afinacion fina vivia solo en la EEPROM de Launcher y un
+# reset la revertia en silencio.
+#
 # 1-ago-2026 (Ola E, histograma de ventanas): alex 54132 -> 55388 (+1256),
 # alex_lab 56656 -> 57848 (+1192). CRECE EL BINARIO DE TORNEO, y es deliberado.
 #
@@ -44,8 +50,8 @@ set -u
 # 28-jul-2026: alex 54296 (era 54288; +8 por el arreglo B1, el
 # id_dynamic_keymap_reset que faltaba en la lista de re-resolucion — correccion,
 # no feature). alex_lab 56680.
-BASE_ALEX=55388
-BASE_LAB=57848
+BASE_ALEX=55872
+BASE_LAB=58276
 
 BUILD_DIR="${BUILD_DIR:-.build}"
 FAIL=0
