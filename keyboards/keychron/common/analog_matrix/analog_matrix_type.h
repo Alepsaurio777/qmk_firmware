@@ -65,15 +65,29 @@ typedef struct __attribute__((__packed__)){
         activity_point_t rapid;
         activity_point_t full;
     };
-    union {                         // 2 bytes
-        uint8_t rpd_trig_sen;       // rapid trig sensitivity
-        uint8_t okmc_idx;
-        uint8_t js_axis;            // joystick x/y axis
-        uint8_t hold;
-    };
+
+    // (1-ago) DES-UNIONADOS. Antes rpd_trig_sen / okmc_idx / js_axis / hold
+    // compartian 1 byte. Eso ya causo un bug real: al degradar un modo avanzado
+    // a su modo base en Gaming, la escritura de okmc_idx/js_axis/hold pisaba la
+    // sensibilidad del rapid trigger, y la cura fue un guardado+restauracion
+    // defensivo en update_key_config(). Esa curita RODEABA la mina; no la
+    // desactivaba: cualquier ruta futura que escribiese estos campos fuera de
+    // ese camino volvia a corromper rpd_trig_sen en silencio.
+    //
+    // Esta estructura es SOLO RAM: analog_key_matrix nunca se serializa a EEPROM
+    // ni a Raw HID (verificado: solo aparece en memset). Lo que cruza esas dos
+    // fronteras es analog_matrix_profile_t, que lleva analog_key_config_t — otra
+    // estructura, con su propia union etiquetada por adv_mode, que SI se
+    // serializa y por tanto se queda exactamente como esta.
+    //
+    // Coste: 3 bytes x 96 entradas = 288 B de RAM en un STM32F401 con 96 KB.
+    uint8_t rpd_trig_sen;           // rapid trig sensitivity
+    uint8_t okmc_idx;
+    uint8_t js_axis;                // joystick x/y axis
+    uint8_t hold;
     uint8_t rpd_trig_sen_rls;
 } analog_key_t;
-// size of analog_key_t is 17 bytes (was 16; +1 for vel_ema, RAM-only)
+// size of analog_key_t is 20 bytes (17 + 3 al des-unionar; todo RAM)
 
 typedef struct __attribute__((__packed__)) {
     uint8_t actn_pt;                        // unit: 0.1mm

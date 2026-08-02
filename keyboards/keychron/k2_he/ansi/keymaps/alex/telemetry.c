@@ -104,8 +104,10 @@ void telemetry_task(void) {
     for (uint8_t i = 0; i < TELEMETRY_KEY_COUNT; i++) {
         const uint8_t r = telemetry_key_row[i];
         const uint8_t c = telemetry_key_col[i];
-        // Sin resolver: reportar cero en vez de leer fuera de rango
-        // (analog_matrix_get_travel no valida indices).
+        // Sin resolver: reportar cero en vez de leer fuera de rango. El chequeo
+        // se queda aqui en vez de usar analog_matrix_get_travel_checked() porque
+        // cubre DOS lecturas (travel y estado) y la salida es "escribe 0 en los
+        // dos bytes y sigue", no "sustituye una lectura".
         if (r >= MATRIX_ROWS || c >= MATRIX_COLS) {
             pkt[6 + i * 2]     = 0;
             pkt[6 + i * 2 + 1] = 0;

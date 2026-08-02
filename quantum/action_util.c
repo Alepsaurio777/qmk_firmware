@@ -393,7 +393,27 @@ void del_mods(uint8_t mods) {
 }
 /** \brief set mods
  *
- * FIXME: needs doc
+ * LIMITACION CONOCIDA del refcount de modificadores (commit 42cd346), (1-ago):
+ *
+ * set_mods() escribe la cuenta en ABSOLUTO (1 o 0), descartando a los co-duenos.
+ * Si un modificador lo sostienen dos fuentes (tecla fisica + mod-tap, p.ej.) y
+ * algo llama aqui, la cuenta baja a 1 y el siguiente del_mods() lo suelta del
+ * cable con la otra fuente todavia activa — que es exactamente el bug que este
+ * refcount vino a arreglar en add/del.
+ *
+ * NO se arregla porque en ESTE build esta inalcanzable, verificado: los unicos
+ * llamantes son quantum/split_common/transactions.c, quantum/unicode/unicode.c y
+ * keyboards/keychron/common/wireless/{transport,wireless}.c, y ninguno de los
+ * tres se compila aqui (sin split, sin unicode, wireless.mk comentado en el
+ * rules.mk del K2 HE).
+ *
+ * Se despierta en dos escenarios, y en cualquiera de los dos hay que arreglarlo
+ * ANTES de dar por bueno el refcount:
+ *   1. Si vuelve wireless (wireless.c llama set_mods(0x02)).
+ *   2. Si este parche se upstrea o se comparte con otro teclado.
+ *
+ * El arreglo es hacerlo aditivo sobre las cuentas existentes en vez de absoluto;
+ * no se hace hoy para no cambiar semantica que nadie ejercita ni puede probar.
  */
 void set_mods(uint8_t mods) {
     for (uint8_t i = 0; i < 8; i++) {

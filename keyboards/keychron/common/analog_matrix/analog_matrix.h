@@ -487,7 +487,11 @@ void analog_matrix_eeprom_update(const void *buf, void *addr, size_t len);
 void analog_matrix_set_mins(uint16_t *min);
 void analog_matrix_set_maxs(uint16_t *max);
 
+// Cruda: NO valida indices. Para llamantes que iteran la matriz por construccion.
 uint8_t      analog_matrix_get_travel(uint8_t row, uint8_t col);
+// Con guardarrail: devuelve 0 fuera de rango. Para indices que vienen de una
+// resolucion por keycode que puede fallar (0xFF) o de un evento virtual.
+uint8_t      analog_matrix_get_travel_checked(uint8_t row, uint8_t col);
 uint8_t      analog_matrix_get_key_mode(uint8_t row, uint8_t col);
 bool         analog_matrix_get_key_state(uint8_t row, uint8_t col);
 

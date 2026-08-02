@@ -19,14 +19,44 @@
 
 set -u
 
-# Baselines. 28-jul-2026: alex 54296 (era 54288; +8 por el arreglo B1, el
+# Baselines.
+#
+# 1-ago-2026 (Ola A, desminado): alex 54296 -> 54132 (-164), alex_lab
+# 56680 -> 56656 (-24). ENCOGEN, y el motivo esta declarado: al des-unionar
+# analog_key_t desaparece el guardado+restauracion defensivo de rpd_trig_sen en
+# update_key_config() —con su llamada a analog_matrix_effective_mode()— y ademas
+# `mode` se movio debajo del early return de update_raw_value(), donde se
+# calculaba para tirarlo. Los dos borran codigo. No es "algo se compilo fuera sin
+# querer": es codigo que dejo de hacer falta. El coste esta en RAM (+288 B de
+# bss por la de-union), que este script no mide.
+#
+# 28-jul-2026: alex 54296 (era 54288; +8 por el arreglo B1, el
 # id_dynamic_keymap_reset que faltaba en la lista de re-resolucion — correccion,
 # no feature). alex_lab 56680.
-BASE_ALEX=54296
-BASE_LAB=56680
+BASE_ALEX=54132
+BASE_LAB=56656
 
 BUILD_DIR="${BUILD_DIR:-.build}"
 FAIL=0
+
+# (1-ago) Sin esto, correr el script fuera de MSYS2 MinGW64 —donde vive el
+# toolchain— daba "0 B" por tecla y un FALLA con delta -54132, que parece una
+# regresion catastrofica y es sólo un PATH. El invariante tiene que fallar por
+# lo que mide, no por donde se ejecuta.
+if ! command -v arm-none-eabi-size >/dev/null 2>&1; then
+    cat <<'EOF' >&2
+ERROR: no encuentro arm-none-eabi-size en el PATH.
+
+Este script necesita el toolchain ARM, que en esta maquina vive dentro de MSYS2
+MinGW64. Desde Windows:
+
+  C:\msys64\msys2_shell.cmd -mingw64 -defterm -no-start -where C:\Users\Alex\keychron-qmk \
+    -c "./keyboards/keychron/k2_he/ansi/keymaps/alex/tools/check-size-invariant.sh"
+
+No se ha comprobado nada. Esto NO es un fallo del invariante.
+EOF
+    exit 2
+fi
 
 # Exactamente el numero que imprime QMK en "Size after": size --target=ihex sobre
 # el .hex, columna `data` (= text + data del .elf). El .bin en disco NO sirve —

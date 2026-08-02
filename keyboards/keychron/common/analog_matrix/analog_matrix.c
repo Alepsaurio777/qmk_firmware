@@ -205,6 +205,27 @@ uint8_t analog_matrix_get_travel(uint8_t row, uint8_t col) {
     return analog_key_matrix[row][col].travel;
 }
 
+// (1-ago) Variante con guardarrail de rango. La cruda de arriba NO valida
+// indices, a proposito: el barrido itera por construccion y pagar dos
+// comparaciones por tecla y por barrido ahi no tiene sentido.
+//
+// El problema estaba fuera del barrido. Hay llamantes cuyo indice puede ser 0xFF
+// de forma legitima —un slot de whitelist cuyo keycode no esta en la capa, un
+// evento virtual de macro con row/col centinela— y cada uno se estaba acordando
+// de comprobarlo a mano. Seis sitios que tienen que acordarse; uno que se olvide
+// lee fuera de rango. Ya paso una vez y costo un commit dedicado (c42acf7).
+//
+// Regla: si el indice VIENE de la matriz, usa la cruda; si viene de una
+// resolucion que puede fallar, usa esta.
+//
+// Deliberadamente NO cubre a quien debe RECHAZAR en vez de sustituir por 0:
+// socd_action() valida su config y get_realtime_travel() valida el paquete
+// entrante. Ahi un 0 silencioso seria peor que el rechazo.
+uint8_t analog_matrix_get_travel_checked(uint8_t row, uint8_t col) {
+    if (row >= MATRIX_ROWS || col >= MATRIX_COLS) return 0;
+    return analog_key_matrix[row][col].travel;
+}
+
 #if ANALOG_DISABLE_OKMC_IN_GAMING_MODE || ANALOG_DISABLE_TOGGLE_IN_GAMING_MODE || ANALOG_DISABLE_GAMEPAD_IN_GAMING_MODE
 static inline uint8_t analog_matrix_base_mode(uint8_t row, uint8_t col) {
     analog_matrix_profile_t *cur_prof = profile_get_current();
@@ -344,25 +365,21 @@ void update_key_config(uint8_t row, uint8_t col) {
     p_key->rpd_trig_sen      = scale_travel_u8(p_key->rpd_trig_sen);
     p_key->rpd_trig_sen_rls  = scale_travel_u8(p_key->rpd_trig_sen_rls);
 
-    // Save scaled RT sensitivity before advance-mode union writes may
-    // overwrite it (rpd_trig_sen shares storage with okmc_idx/js_axis/hold).
-    const uint8_t saved_rpd_trig_sen = p_key->rpd_trig_sen;
-
-    // Update advance mode information
+    // Update advance mode information.
+    //
+    // (1-ago) Aqui vivia un guardado+restauracion de rpd_trig_sen: estos tres
+    // campos compartian byte con el en una union, asi que escribir okmc_idx /
+    // js_axis / hold pisaba la sensibilidad del rapid trigger cuando Gaming
+    // degradaba un modo avanzado a su modo base. Al des-unionarlos
+    // (analog_matrix_type.h) el problema deja de existir en la estructura y la
+    // curita sobra. Bonus: se ahorra la llamada a analog_matrix_effective_mode()
+    // que la condicion de restauracion hacia en cada reconfiguracion de tecla.
     if (p_key_cfg->adv_mode == AKM_DKS && p_key_cfg->okmc_idx < OKMC_COUNT) {
         p_key->okmc_idx = p_key_cfg->okmc_idx;
     } else if (p_key_cfg->adv_mode == AKM_GAMEPAD && p_key_cfg->js_axis < GC_BUTTON_MAX && p_key_cfg->js_axis != GC_MAX) {
         p_key->js_axis = p_key_cfg->js_axis;
     } else if (p_key_cfg->adv_mode == AKM_TOGGLE) {
         p_key->hold = 0;
-    }
-
-    // When gaming mode overrides an advanced mode back to the base mode
-    // (Regular or Rapid), the union writes above clobber rpd_trig_sen.
-    // Restore it so Rapid Trigger keeps the correct sensitivity.
-    if (p_key_cfg->adv_mode != 0 &&
-        analog_matrix_effective_mode(row, col, p_key->mode) != p_key_cfg->adv_mode) {
-        p_key->rpd_trig_sen = saved_rpd_trig_sen;
     }
 }
 
@@ -996,9 +1013,17 @@ bool update_raw_value(uint8_t row, uint8_t col, uint16_t value) {
     }
 #endif
 
-    const uint8_t mode = analog_matrix_effective_mode(row, col, k->mode);
-
     if (k->travel == k->last_travel) return false;
+
+    // (1-ago) Movido DEBAJO del early return. Estaba encima, asi que se calculaba
+    // para CADA tecla y CADA barrido solo para tirarlo: `mode` unicamente se usa
+    // en el switch de aqui abajo, y en la inmensa mayoria de barridos el travel
+    // no cambia. Y no es gratis: con los tres ANALOG_DISABLE_*_IN_GAMING_MODE a 1
+    // esta es la version real de la funcion — tres ramas mas una posible llamada
+    // a analog_matrix_base_mode(), que a su vez llama a profile_get_current(),
+    // funcion externa que el compilador no puede demostrar libre de efectos y
+    // por tanto probablemente no hundia por si solo.
+    const uint8_t mode = analog_matrix_effective_mode(row, col, k->mode);
 
     bool ret = false;
 
@@ -1088,9 +1113,18 @@ static inline bool physical_edge_owned_by_press_stretch(uint8_t row, uint8_t col
 // diferido no puede implementarse dentro de rapid_trigger_action). Estado por
 // slot de whitelist, no por tecla: son 2 teclas fijadas en compile-time.
 typedef struct {
-    uint16_t deadline;     // timer_read() en el que expira la ventana OFF
-    bool     stretching;   // ventana activa: el press fisico se reporta OFF
-    bool     prev_pressed; // estado FISICO previo (detecta el flanco de release)
+    uint16_t deadline;   // timer_read() en el que expira la ventana OFF
+    bool     stretching; // ventana activa: el press fisico se reporta OFF
+    // Estado previo TAL COMO LO VE ESTE FILTRO — que no siempre es el dedo.
+    // (1-ago) Antes decia "estado FISICO previo", y para la unica tecla que
+    // lleva los dos filtros (el espacio) era FALSO: la cadena es F9 -> F6
+    // (analog_matrix_scan.c), asi que lo que F6 recibe ya viene estirado por F9
+    // y esto sigue la SALIDA DE F9, no el flanco fisico. Para W (solo F6) si
+    // coincide con el dedo. Es intencionado —es como se apilan las dos ventanas
+    // hasta 110 ms— y es justo por eso que existe
+    // physical_edge_owned_by_press_stretch(): para que F6 no reporte un flanco
+    // "fisico" que ya viene desplazado.
+    bool prev_pressed;
 } release_stretch_t;
 
 static release_stretch_t release_stretch[2];
