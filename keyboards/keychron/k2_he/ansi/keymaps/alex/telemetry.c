@@ -1,5 +1,6 @@
 #include QMK_KEYBOARD_H
 #include "analog_matrix.h"
+#include "window_histogram.h"
 #include "raw_hid.h"
 #include "telemetry.h"
 
@@ -263,6 +264,14 @@ enum {
     DIAG_TELEM_OFF   = 0x10,
     DIAG_TELEM_ON    = 0x11,
     DIAG_POLICY_DUMP = 0x20,
+    // (1-ago) Histograma de ventanas. OJO: estos DOS tienen que estar en el
+    // switch de telemetry_raw_hid_rx(), no caer por el default — ese default
+    // APAGA los diagnosticos, asi que un comando no reconocido mataria la sesion
+    // que intenta leer. Es la misma trampa que obligo a meter DIAG_POLICY_DUMP
+    // dentro del switch.
+    DIAG_HIST_RESET  = 0x30,
+    DIAG_HIST_DUMP   = 0x31, // data[2] = key_idx, data[3] = capa
+    DIAG_HEALTH_DUMP = 0x32,
 };
 
 // Volcado de la politica resuelta (whitelists por keycode -> posiciones). Es
@@ -282,6 +291,36 @@ static void policy_dump_send(void) {
     pkt[0]                        = POLICY_MAGIC;
     pkt[1]                        = POLICY_VERSION;
     analog_matrix_policy_dump(&pkt[2]);
+    raw_hid_send(pkt, TELEMETRY_EPSIZE);
+}
+#endif
+
+#if ANALOG_WINDOW_HISTOGRAM
+// Histograma de ventanas: un paquete por tecla y capa, pedido individualmente.
+// Sin paginacion a proposito — para tres teclas no compensa el estado de
+// secuenciacion que luego habria que depurar.
+#    define HIST_MAGIC 0xEA
+#    define HIST_VERSION 1
+#    define HEALTH_MAGIC 0xE9
+#    define HEALTH_VERSION 1
+STATIC_ASSERT(3 + AWH_DUMP_LEN <= TELEMETRY_EPSIZE, "El volcado del histograma no cabe en un paquete Raw HID");
+STATIC_ASSERT(2 + AWH_HEALTH_LEN <= TELEMETRY_EPSIZE, "El volcado de salud no cabe en un paquete Raw HID");
+
+static void hist_dump_send(uint8_t key_idx, uint8_t layer) {
+    uint8_t pkt[TELEMETRY_EPSIZE] = {0};
+    pkt[0]                        = HIST_MAGIC;
+    pkt[1]                        = HIST_VERSION;
+    // pkt[2] = 0 (ok) / 1 (indice fuera de rango). El cliente no tiene que
+    // adivinar si un volcado a cero es "sin datos" o "pediste mal".
+    pkt[2] = analog_window_hist_dump(key_idx, layer, &pkt[3]) ? 0 : 1;
+    raw_hid_send(pkt, TELEMETRY_EPSIZE);
+}
+
+static void health_dump_send(void) {
+    uint8_t pkt[TELEMETRY_EPSIZE] = {0};
+    pkt[0]                        = HEALTH_MAGIC;
+    pkt[1]                        = HEALTH_VERSION;
+    analog_window_hist_health(&pkt[2]);
     raw_hid_send(pkt, TELEMETRY_EPSIZE);
 }
 #endif
@@ -317,6 +356,17 @@ void telemetry_raw_hid_rx(uint8_t src, uint8_t *data, uint8_t length) {
 #if ANALOG_POLICY_NEEDED
             case DIAG_POLICY_DUMP:
                 policy_dump_send();
+                break;
+#endif
+#if ANALOG_WINDOW_HISTOGRAM
+            case DIAG_HIST_RESET:
+                analog_window_hist_reset();
+                break;
+            case DIAG_HIST_DUMP:
+                if (length >= 4) hist_dump_send(data[2], data[3]);
+                break;
+            case DIAG_HEALTH_DUMP:
+                health_dump_send();
                 break;
 #endif
         }

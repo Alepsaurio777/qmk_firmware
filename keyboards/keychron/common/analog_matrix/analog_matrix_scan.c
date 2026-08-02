@@ -19,6 +19,7 @@
 #include "gpio.h"
 #include "quantum.h"
 #include "analog_matrix.h"
+#include "window_histogram.h"
 #include "debounce.h"
 #ifdef LK_WIRELESS_ENABLE
 #    include "lpm.h"
@@ -263,8 +264,13 @@ void matrix_read_rows_on_col(uint8_t current_col, matrix_row_t row_shifter) {
             // pelearia contra el ON que F9 esta sosteniendo. Encadenados en este
             // orden se apilan, que es lo correcto: el OFF tiene que verse DESPUES
             // de que el ON se viera, porque son dos muestreos de tick distintos.
-            bool pressed = analog_matrix_press_stretch_apply(row_index, current_col, analog_matrix_get_key_state(row_index, current_col));
-            pressed      = analog_matrix_release_stretch_apply(row_index, current_col, pressed);
+            const bool physical = analog_matrix_get_key_state(row_index, current_col);
+            bool       pressed  = analog_matrix_press_stretch_apply(row_index, current_col, physical);
+            pressed             = analog_matrix_release_stretch_apply(row_index, current_col, pressed);
+            // El histograma ve las DOS capas: el dedo (physical) y lo que sale al
+            // cable (pressed). En torneo coinciden; en lab la distancia entre
+            // ellas es lo que el clamp de F6/F9 rescato.
+            analog_window_hist_observe(row_index, current_col, physical, pressed);
             if (pressed) {
                 if ((analog_raw_matrix[row_index] & row_mask) == 0) changed = true;
 
@@ -317,8 +323,10 @@ static void process_col_samples(uint8_t col, matrix_row_t row_shifter, const adc
 
         // Orden load-bearing F9 -> F6, mismo racional que en
         // matrix_read_rows_on_col (ver comentario alli).
-        bool pressed = analog_matrix_press_stretch_apply(row_index, col, analog_matrix_get_key_state(row_index, col));
-        pressed      = analog_matrix_release_stretch_apply(row_index, col, pressed);
+        const bool physical = analog_matrix_get_key_state(row_index, col);
+        bool       pressed  = analog_matrix_press_stretch_apply(row_index, col, physical);
+        pressed             = analog_matrix_release_stretch_apply(row_index, col, pressed);
+        analog_window_hist_observe(row_index, col, physical, pressed);
         if (pressed) {
             if ((analog_raw_matrix[row_index] & row_shifter) == 0) changed = true;
             row_value |= (0x01 << row_index);

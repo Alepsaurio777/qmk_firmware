@@ -8,6 +8,22 @@
 layer_state_t default_layer_state = 1; // capa 0 = Gaming por defecto
 layer_state_t layer_state         = 0;
 
+// El histograma lee el travel desde el analog_key_matrix global y desde
+// analog_matrix_get_travel(). En el firmware los pone analog_matrix.c, que no se
+// puede compilar en host (arrastra EEPROM, I2C y raw_hid). Aqui los define el
+// harness: es un STUB DE DATOS, no de logica — el test escribe travel en la
+// tabla y el codigo real lo lee igual que en el teclado.
+analog_key_t analog_key_matrix[MATRIX_ROWS][MATRIX_COLS];
+
+uint8_t analog_matrix_get_travel(uint8_t row, uint8_t col) {
+    return analog_key_matrix[row][col].travel;
+}
+
+uint8_t analog_matrix_get_travel_checked(uint8_t row, uint8_t col) {
+    if (row >= MATRIX_ROWS || col >= MATRIX_COLS) return 0;
+    return analog_key_matrix[row][col].travel;
+}
+
 // ---------------------------------------------------------------------------
 // Keymap falso
 // ---------------------------------------------------------------------------

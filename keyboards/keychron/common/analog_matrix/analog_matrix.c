@@ -29,6 +29,7 @@ static bool calibration_dirty = false;
 #include "profile.h"
 #include "sqrt.h"
 #include "game_controller_common.h"
+#include "window_histogram.h"
 #include "nvm_eeprom_eeconfig_internal.h"
 
 #ifndef CAL_SAMPL_CNT
@@ -394,6 +395,13 @@ void update_travel_configs(void) {
     // se recolocan aqui: es el unico punto que ya corre en boot, cambio de
     // perfil y cambio de modo. No-op textual si ninguna esta compilada.
     analog_matrix_resolve_policy_keys();
+
+    // El histograma resuelve sus teclas aparte y no a traves de
+    // ANALOG_POLICY_NEEDED: vive en los DOS binarios, y colgarlo de ahi
+    // arrastraria el volcado de politica al de torneo. Un segundo barrido del
+    // keymap en un evento de configuracion (boot, perfil, interruptor) no
+    // cuesta nada; acoplar los dos conceptos, si.
+    analog_window_hist_resolve_keys();
 }
 
 static void update_default_travel(void) {

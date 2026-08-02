@@ -21,6 +21,17 @@ set -u
 
 # Baselines.
 #
+# 1-ago-2026 (Ola E, histograma de ventanas): alex 54132 -> 55388 (+1256),
+# alex_lab 56656 -> 57848 (+1192). CRECE EL BINARIO DE TORNEO, y es deliberado.
+#
+# La pregunta que este script obliga a contestar es "¿fuga de lab o decisión?".
+# Es una DECISION, y con coste declarado: el histograma de ventanas ON/OFF vive
+# en los DOS binarios. Un histograma que sólo existiera en lab mediría el
+# binario equivocado, y la comparación torneo/lab es el eje del proyecto — es el
+# mismo argumento que ya justifica la telemetría en los dos (DEVELOPMENT.md).
+# Lo que se compra: las ventanas dejan de reconstruirse en Python desde un evlog
+# que pierde eventos en ráfaga, y pasan a contarse sin pérdida en firmware.
+#
 # 1-ago-2026 (Ola A, desminado): alex 54296 -> 54132 (-164), alex_lab
 # 56680 -> 56656 (-24). ENCOGEN, y el motivo esta declarado: al des-unionar
 # analog_key_t desaparece el guardado+restauracion defensivo de rpd_trig_sen en
@@ -33,8 +44,8 @@ set -u
 # 28-jul-2026: alex 54296 (era 54288; +8 por el arreglo B1, el
 # id_dynamic_keymap_reset que faltaba en la lista de re-resolucion — correccion,
 # no feature). alex_lab 56680.
-BASE_ALEX=54132
-BASE_LAB=56656
+BASE_ALEX=55388
+BASE_LAB=57848
 
 BUILD_DIR="${BUILD_DIR:-.build}"
 FAIL=0

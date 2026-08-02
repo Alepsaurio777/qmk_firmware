@@ -17,6 +17,7 @@ SRC += \
      $(ANALOG_MATRX_DIR)/action_xinput.c \
      $(ANALOG_MATRX_DIR)/action_socd.c \
      $(ANALOG_MATRX_DIR)/action_stretch.c \
+     $(ANALOG_MATRX_DIR)/window_histogram.c \
      $(ANALOG_MATRX_DIR)/sqrt.c \
      $(ANALOG_MATRX_DIR)/game_controller_common.c \
      $(ANALOG_MATRX_DIR)/analog_matrix.c

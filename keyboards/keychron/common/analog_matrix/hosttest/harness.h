@@ -22,6 +22,10 @@
 // es la senal correcta.
 bool rapid_trigger_action(analog_key_t *key);
 
+// Tabla global de teclas. La define el harness (ver harness.c) y la consume el
+// codigo real del histograma; los tests escriben travel aqui.
+extern analog_key_t analog_key_matrix[MATRIX_ROWS][MATRIX_COLS];
+
 // ---------------------------------------------------------------------------
 // Keymap falso
 // ---------------------------------------------------------------------------
