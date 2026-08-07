@@ -329,11 +329,6 @@ void update_key_config(uint8_t row, uint8_t col) {
     else
         p_key->mode = p_key_cfg->mode;
 
-    //  Override mode if advance mode setting exists
-    if (p_key_cfg->adv_mode != 0) {
-        p_key->mode = p_key_cfg->adv_mode;
-    }
-
     // Update actuaction point
     if (p_key_cfg->act_pt == 0)
         p_key->regular.actn_pt = cur_prof->global.act_pt;
@@ -387,10 +382,13 @@ void update_key_config(uint8_t row, uint8_t col) {
     // curita sobra. Bonus: se ahorra la llamada a analog_matrix_effective_mode()
     // que la condicion de restauracion hacia en cada reconfiguracion de tecla.
     if (p_key_cfg->adv_mode == AKM_DKS && p_key_cfg->okmc_idx < OKMC_COUNT) {
+        p_key->mode = AKM_DKS;
         p_key->okmc_idx = p_key_cfg->okmc_idx;
     } else if (p_key_cfg->adv_mode == AKM_GAMEPAD && p_key_cfg->js_axis < GC_BUTTON_MAX && p_key_cfg->js_axis != GC_MAX) {
+        p_key->mode = AKM_GAMEPAD;
         p_key->js_axis = p_key_cfg->js_axis;
     } else if (p_key_cfg->adv_mode == AKM_TOGGLE) {
+        p_key->mode = AKM_TOGGLE;
         p_key->hold = 0;
     }
 }
@@ -475,8 +473,8 @@ static void update_scale_factors(void) {
 }
 
 void analog_matrix_eeprom_update(const void *buf, void *addr, size_t len) {
-    addr += EECONFIG_BASE_ANALOG_MATRIX;
-    eeprom_update_block(buf, addr, len);
+    uint8_t *dst = (uint8_t *)addr + EECONFIG_BASE_ANALOG_MATRIX;
+    eeprom_update_block(buf, dst, len);
 }
 
 // Removed save_calibration_value as it is now handled asynchronously

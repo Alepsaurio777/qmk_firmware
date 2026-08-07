@@ -123,7 +123,7 @@ static void adcerrorcallback(ADCDriver *adcp, adcerror_t err) {
 // clang-format off
 ADCConversionGroup adcgrpcfg = {
     FALSE,
-    6,
+    ADC_GRP_NUM_CHANNELS,
     NULL,
     adcerrorcallback,
     0,                                          /* CR1 */

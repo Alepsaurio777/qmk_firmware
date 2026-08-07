@@ -235,7 +235,7 @@ void profile_init(bool reset) {
         memcpy(profile, buf + OFFSET_PROFILES_START, PROFILE_SIZE * PROFILE_COUNT);
 
         for (uint8_t i = 0; i < PROFILE_COUNT; i++) {
-            if (profile[i].global.mode == 0) profile[i].global.mode = profile_gobal_mode[i]; // global mode can't be 0
+            if (profile[i].global.mode == 0 || profile[i].global.mode > AKM_RAPID) profile[i].global.mode = profile_gobal_mode[i];
 
             // Resotre to default if not in valid range
             if (profile[i].global.act_pt == 0 || profile[i].global.act_pt > 39) profile[i].global.act_pt = DEFAULT_ACTUATION_POINT;

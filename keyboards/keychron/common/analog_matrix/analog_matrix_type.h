@@ -140,6 +140,8 @@ typedef struct __attribute__((__packed__)) {
     uint8_t type;
 } socd_config_t;
 // size  = 3 bytes
+STATIC_ASSERT(MATRIX_ROWS <= 7, "socd_config_t.key_row is 3 bits — max 7 rows");
+STATIC_ASSERT(MATRIX_COLS <= 31, "socd_config_t.key_col is 5 bits — max 31 cols");
 
 typedef struct __attribute__((__packed__)) {
     uint8_t x;                              // 1
