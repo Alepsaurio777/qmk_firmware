@@ -16,6 +16,7 @@
 
 #include "quantum.h"
 #include "analog_matrix.h"
+#include "bottom_out_confidence.h"
 #include "keymap_introspection.h"
 #include "raw_hid.h"
 #include "eeprom.h"
@@ -176,6 +177,13 @@ extern void socd_action(void);
 static calibrated_value_t calib_values[MATRIX_ROWS][MATRIX_COLS];
 static calibrated_value_t saved_calib_values[MATRIX_ROWS][MATRIX_COLS];
 analog_key_t       analog_key_matrix[MATRIX_ROWS][MATRIX_COLS];
+
+#if ANALOG_CONFIDENT_BOTTOM_OUT_ENABLE
+static bottom_out_confidence_t confident_bottom[MATRIX_ROWS][MATRIX_COLS];
+static uint16_t                confident_bottom_baseline[MATRIX_ROWS][MATRIX_COLS];
+static matrix_row_t            confident_bottom_applied[MATRIX_ROWS];
+static bool                    confident_bottom_initialized;
+#endif
 
 static uint16_t      calibrate_values[MATRIX_ROWS][MATRIX_COLS][CAL_SAMPL_CNT];
 #if ANALOG_AUTO_CALIBRATION_ENABLE
@@ -473,6 +481,97 @@ static void update_scale_factors(void) {
         }
     }
 }
+
+#if ANALOG_CONFIDENT_BOTTOM_OUT_ENABLE
+STATIC_ASSERT(!ANALOG_BOTTOM_OUT_LEARN, "no activar los dos learners de bottom-out a la vez");
+
+static void confident_bottom_restore_baseline(void) {
+    if (!confident_bottom_initialized) return;
+
+    for (uint8_t r = 0; r < MATRIX_ROWS; r++) {
+        for (uint8_t c = 0; c < MATRIX_COLS; c++) {
+            if ((analog_matrix_mask[r] & (0x01U << c)) == 0) continue;
+            calib_values[r][c].full_travel = confident_bottom_baseline[r][c];
+            update_scale_factor(r, c);
+        }
+        confident_bottom_applied[r] = 0;
+    }
+}
+
+static void confident_bottom_begin(void) {
+    for (uint8_t r = 0; r < MATRIX_ROWS; r++) {
+        for (uint8_t c = 0; c < MATRIX_COLS; c++) {
+            confident_bottom_baseline[r][c] = calib_values[r][c].full_travel;
+            bottom_out_confidence_reset(&confident_bottom[r][c]);
+        }
+        confident_bottom_applied[r] = 0;
+    }
+    confident_bottom_initialized = true;
+}
+
+static void confident_bottom_suspend_for_calibration(void) {
+    if (!confident_bottom_initialized) return;
+    confident_bottom_restore_baseline();
+    confident_bottom_initialized = false;
+}
+
+bool analog_matrix_confident_bottom_status(uint8_t row, uint8_t col, analog_confident_bottom_status_t *out) {
+    if (!out || row >= MATRIX_ROWS || col >= MATRIX_COLS || (analog_matrix_mask[row] & (0x01U << col)) == 0) return false;
+
+    const bottom_out_confidence_t *state = &confident_bottom[row][col];
+    *out = (analog_confident_bottom_status_t){
+        .baseline_full     = confident_bottom_initialized ? confident_bottom_baseline[row][col] : 0,
+        .active_full       = calib_values[row][col].full_travel,
+        .candidate_full    = state->candidate_full,
+        .sample_min        = state->sample_min,
+        .sample_max        = state->sample_max,
+        .completed_presses = state->completed_presses,
+        .rejected_windows  = state->rejected_windows,
+        .sample_count      = state->sample_count,
+        .initialized       = confident_bottom_initialized,
+        .ready             = state->ready,
+        .applied           = (confident_bottom_applied[row] & (0x01U << col)) != 0,
+    };
+    return true;
+}
+
+bool analog_matrix_confident_bottom_apply_key(uint8_t row, uint8_t col) {
+    // La orden se da en modo Win, se verifica y luego se entra a Gaming. No
+    // cambiar la escala a mitad de una partida por accidente.
+    if (!confident_bottom_initialized || analog_matrix_is_gaming_mode() || row >= MATRIX_ROWS || col >= MATRIX_COLS || (analog_matrix_mask[row] & (0x01U << col)) == 0) return false;
+
+    const bottom_out_confidence_t *state = &confident_bottom[row][col];
+    if (!state->ready || state->candidate_full < VALID_ANALOG_RAW_VALUE_MIN || state->candidate_full >= calib_values[row][col].zero_travel) return false;
+
+    calib_values[row][col].full_travel = state->candidate_full;
+    update_scale_factor(row, col);
+    confident_bottom_applied[row] |= 0x01U << col;
+    return true;
+}
+
+uint8_t analog_matrix_confident_bottom_revert(void) {
+    if (!confident_bottom_initialized) return 0;
+
+    uint8_t reverted = 0;
+    for (uint8_t r = 0; r < MATRIX_ROWS; r++) {
+        matrix_row_t applied = confident_bottom_applied[r];
+        for (uint8_t c = 0; c < MATRIX_COLS; c++) {
+            if ((applied & (0x01U << c)) == 0) continue;
+            calib_values[r][c].full_travel = confident_bottom_baseline[r][c];
+            update_scale_factor(r, c);
+            if (reverted != UINT8_MAX) reverted++;
+        }
+        confident_bottom_applied[r] = 0;
+    }
+    return reverted;
+}
+
+void analog_matrix_confident_bottom_clear(void) {
+    if (!confident_bottom_initialized) return;
+    for (uint8_t r = 0; r < MATRIX_ROWS; r++)
+        for (uint8_t c = 0; c < MATRIX_COLS; c++) bottom_out_confidence_reset(&confident_bottom[r][c]);
+}
+#endif
 
 void analog_matrix_eeprom_update(const void *buf, void *addr, size_t len) {
     addr += EECONFIG_BASE_ANALOG_MATRIX;
@@ -1016,6 +1115,12 @@ bool update_raw_value(uint8_t row, uint8_t col, uint16_t value) {
     k->value    = value;
     k->travel   = convert_to_travel(row, col, value);
 
+#if ANALOG_CONFIDENT_BOTTOM_OUT_ENABLE
+    if (confident_bottom_initialized) {
+        bottom_out_confidence_observe(&confident_bottom[row][col], value, k->travel, confident_bottom_baseline[row][col]);
+    }
+#endif
+
 #if ANALOG_PREDICTIVE_ACTUATION_IN_GAMING_MODE
     // EMA del delta descendente por scan (velocidad del dedo). Solo crece para
     // movimiento hacia abajo (travel crece = golpe); decae (factor 1/2^N) en
@@ -1193,7 +1298,18 @@ static void bottom_out_learn_task(void) {
 #endif
 
 void analog_matrix_task(void) {
+#if ANALOG_CONFIDENT_BOTTOM_OUT_ENABLE
+    // Una calibracion manual/Launcher invalida el snapshot de rollback. Volver
+    // primero al baseline, dejar que Keychron calibre y capturar el nuevo estado
+    // cuando termine. Asi el experimento nunca contamina una calibracion real.
+    if (cali_state != CALIB_OFF) confident_bottom_suspend_for_calibration();
+#endif
+
     calibrate();
+
+#if ANALOG_CONFIDENT_BOTTOM_OUT_ENABLE
+    if (cali_state == CALIB_OFF && !confident_bottom_initialized) confident_bottom_begin();
+#endif
 
 #if ANALOG_BOTTOM_OUT_LEARN
     bottom_out_learn_task();

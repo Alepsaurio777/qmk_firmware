@@ -23,6 +23,8 @@
 #define COL_W 2
 #define ROW_SPC 5
 #define COL_SPC 6
+#define ROW_LSFT 4
+#define COL_LSFT 0
 
 // Espejo del encadenamiento de analog_matrix_scan.c. El ORDEN es load-bearing:
 // F9 primero, F6 despues. Al reves, F6 veria el release fisico y abriria su
@@ -47,6 +49,7 @@ static void setup_keymap(void) {
     hosttest_keymap_clear();
     hosttest_keymap_set(ROW_W, COL_W, KC_W);
     hosttest_keymap_set(ROW_SPC, COL_SPC, KC_SPACE);
+    hosttest_keymap_set(ROW_LSFT, COL_LSFT, KC_LEFT_SHIFT);
     hosttest_set_gaming();
     hosttest_clock_set(1000); // lejos de 0 para no depender del arranque
     analog_matrix_resolve_policy_keys();
@@ -73,6 +76,8 @@ static void test_policy_follows_remap(void) {
 #    if ANALOG_PRESS_STRETCH_IN_GAMING_MODE
     // out[27] = slot 0 de F9 (KC_SPACE)
     CHECK(dump[27] == ((ROW_SPC << 4) | COL_SPC), "F9 slot0 resuelto a 0x%02X, esperaba 0x%02X", dump[27], (ROW_SPC << 4) | COL_SPC);
+    // out[28] = slot 1 de F9 (KC_LEFT_SHIFT)
+    CHECK(dump[28] == ((ROW_LSFT << 4) | COL_LSFT), "F9 slot1 resuelto a 0x%02X, esperaba 0x%02X", dump[28], (ROW_LSFT << 4) | COL_LSFT);
 #    endif
 
     // Remapeo: W se va a otra posicion. Re-resolver debe llevarse la politica.
@@ -162,6 +167,25 @@ static void test_press_stretch_window(void) {
 #endif
 }
 
+// El segundo slot usa la misma FSM, pero necesita una prueba propia para que el
+// espejo de config, la resolucion y el array de dos slots no puedan divergir.
+static void test_press_stretch_lshift_window(void) {
+    setup_keymap();
+    hold_and_count_on(ROW_LSFT, COL_LSFT, false, 20);
+
+    CHECK(chain(ROW_LSFT, COL_LSFT, true), "LShift deberia reportar el press de inmediato");
+    hosttest_clock_advance(1);
+    hold_and_count_on(ROW_LSFT, COL_LSFT, true, 4);
+
+#if ANALOG_PRESS_STRETCH_IN_GAMING_MODE
+    const uint32_t on_after = hold_and_count_on(ROW_LSFT, COL_LSFT, false, 45);
+    CHECK(on_after == 45, "F9 LShift: tras soltar se reportaron %lu ms en ON de 45 esperados", (unsigned long)on_after);
+#else
+    const uint32_t on_after = hold_and_count_on(ROW_LSFT, COL_LSFT, false, 45);
+    CHECK(on_after == 0, "torneo: LShift debe ser passthrough, hubo %lu ms de ON", (unsigned long)on_after);
+#endif
+}
+
 // ---------------------------------------------------------------------------
 // 5. La cadena F9 -> F6 en el espacio: 55 ms ON y luego 55 ms OFF
 // ---------------------------------------------------------------------------
@@ -243,6 +267,7 @@ int main(void) {
     test_release_stretch_window();
     test_release_stretch_does_not_delay_off();
     test_press_stretch_window();
+    test_press_stretch_lshift_window();
 #if ANALOG_PRESS_STRETCH_IN_GAMING_MODE && ANALOG_RELEASE_STRETCH_IN_GAMING_MODE
     test_press_then_release_stretch_chain();
     test_fast_double_tap_merges();

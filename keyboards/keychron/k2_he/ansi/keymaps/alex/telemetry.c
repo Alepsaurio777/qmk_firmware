@@ -1,5 +1,6 @@
 #include QMK_KEYBOARD_H
 #include "analog_matrix.h"
+#include "bottom_out_confidence.h"
 #include "window_histogram.h"
 #include "raw_hid.h"
 #include "telemetry.h"
@@ -272,6 +273,10 @@ enum {
     DIAG_HIST_RESET  = 0x30,
     DIAG_HIST_DUMP   = 0x31, // data[2] = key_idx, data[3] = capa
     DIAG_HEALTH_DUMP = 0x32,
+    DIAG_CAL_STATUS  = 0x40, // data[2] = key_idx de telemetry_keycodes
+    DIAG_CAL_APPLY   = 0x41, // data[2] = key_idx; aplica solo en RAM
+    DIAG_CAL_REVERT  = 0x42, // vuelve al snapshot de arranque
+    DIAG_CAL_CLEAR   = 0x43, // borra muestras, conserva baseline/aplicacion
 };
 
 // Volcado de la politica resuelta (whitelists por keycode -> posiciones). Es
@@ -295,6 +300,69 @@ static void policy_dump_send(void) {
 }
 #endif
 
+#if ANALOG_CONFIDENT_BOTTOM_OUT_ENABLE
+#    define CAL_MAGIC 0xE8
+#    define CAL_VERSION 1
+enum {
+    CAL_REPLY_STATUS,
+    CAL_REPLY_ACTION,
+};
+
+static void cal_status_send(uint8_t key_idx) {
+    uint8_t pkt[TELEMETRY_EPSIZE] = {0};
+    pkt[0]                        = CAL_MAGIC;
+    pkt[1]                        = CAL_VERSION;
+    pkt[2]                        = CAL_REPLY_STATUS;
+    pkt[3]                        = key_idx;
+
+    if (key_idx >= TELEMETRY_KEY_COUNT) {
+        pkt[6] = 0x80;
+        raw_hid_send(pkt, TELEMETRY_EPSIZE);
+        return;
+    }
+
+    const uint8_t row = telemetry_key_row[key_idx];
+    const uint8_t col = telemetry_key_col[key_idx];
+    pkt[4]            = row;
+    pkt[5]            = col;
+
+    analog_confident_bottom_status_t status;
+    if (!analog_matrix_confident_bottom_status(row, col, &status)) {
+        pkt[6] = 0x80;
+        raw_hid_send(pkt, TELEMETRY_EPSIZE);
+        return;
+    }
+
+    pkt[6] = (uint8_t)((status.initialized ? 0x01 : 0) | (status.ready ? 0x02 : 0) | (status.applied ? 0x04 : 0) | (analog_matrix_is_gaming_mode() ? 0x08 : 0));
+    pkt[7] = status.sample_count;
+#    define CAL_PUT16(offset, value)      \
+        do {                              \
+            pkt[offset]     = (value);    \
+            pkt[offset + 1] = (value) >> 8; \
+        } while (0)
+    CAL_PUT16(8, status.baseline_full);
+    CAL_PUT16(10, status.active_full);
+    CAL_PUT16(12, status.candidate_full);
+    CAL_PUT16(14, status.sample_min);
+    CAL_PUT16(16, status.sample_max);
+    CAL_PUT16(18, status.completed_presses);
+    CAL_PUT16(20, status.rejected_windows);
+#    undef CAL_PUT16
+    raw_hid_send(pkt, TELEMETRY_EPSIZE);
+}
+
+static void cal_action_send(uint8_t subcmd, uint8_t affected) {
+    uint8_t pkt[TELEMETRY_EPSIZE] = {0};
+    pkt[0]                        = CAL_MAGIC;
+    pkt[1]                        = CAL_VERSION;
+    pkt[2]                        = CAL_REPLY_ACTION;
+    pkt[3]                        = subcmd;
+    pkt[4]                        = affected;
+    pkt[5]                        = analog_matrix_is_gaming_mode() ? 1 : 0;
+    raw_hid_send(pkt, TELEMETRY_EPSIZE);
+}
+#endif
+
 #if ANALOG_WINDOW_HISTOGRAM
 // Histograma de ventanas: un paquete por tecla y capa, pedido individualmente.
 // Sin paginacion a proposito — para tres teclas no compensa el estado de
@@ -302,7 +370,7 @@ static void policy_dump_send(void) {
 #    define HIST_MAGIC 0xEA
 #    define HIST_VERSION 1
 #    define HEALTH_MAGIC 0xE9
-#    define HEALTH_VERSION 1
+#    define HEALTH_VERSION 2
 STATIC_ASSERT(3 + AWH_DUMP_LEN <= TELEMETRY_EPSIZE, "El volcado del histograma no cabe en un paquete Raw HID");
 STATIC_ASSERT(2 + AWH_HEALTH_LEN <= TELEMETRY_EPSIZE, "El volcado de salud no cabe en un paquete Raw HID");
 
@@ -325,9 +393,8 @@ static void health_dump_send(void) {
 }
 #endif
 
-// El override de kc_raw_hid_rx_user vive en keymap.c (siempre compilado) y
-// delega aqui: la re-resolucion de la politica por keycode no puede depender de
-// ALEX_TELEMETRY_ENABLE, o apagar los diagnosticos la perderia en silencio.
+// El override de kc_raw_hid_rx_user vive en el keymap compartido y delega aqui
+// en lab. En alex se compila fuera junto con telemetria/politica/histograma.
 void telemetry_raw_hid_rx(uint8_t src, uint8_t *data, uint8_t length) {
     (void)src;
 
@@ -367,6 +434,27 @@ void telemetry_raw_hid_rx(uint8_t src, uint8_t *data, uint8_t length) {
                 break;
             case DIAG_HEALTH_DUMP:
                 health_dump_send();
+                break;
+#endif
+#if ANALOG_CONFIDENT_BOTTOM_OUT_ENABLE
+            case DIAG_CAL_STATUS:
+                if (length >= 3) cal_status_send(data[2]);
+                break;
+            case DIAG_CAL_APPLY:
+                if (length >= 3 && data[2] < TELEMETRY_KEY_COUNT) {
+                    const uint8_t row = telemetry_key_row[data[2]];
+                    const uint8_t col = telemetry_key_col[data[2]];
+                    cal_action_send(data[1], analog_matrix_confident_bottom_apply_key(row, col) ? 1 : 0);
+                } else {
+                    cal_action_send(data[1], 0);
+                }
+                break;
+            case DIAG_CAL_REVERT:
+                cal_action_send(data[1], analog_matrix_confident_bottom_revert());
+                break;
+            case DIAG_CAL_CLEAR:
+                analog_matrix_confident_bottom_clear();
+                cal_action_send(data[1], 0);
                 break;
 #endif
         }

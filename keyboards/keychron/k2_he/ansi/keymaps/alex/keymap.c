@@ -16,6 +16,7 @@
 
 #include QMK_KEYBOARD_H
 #include "analog_matrix.h"
+#include "window_histogram.h"
 #include "keychron_common.h"
 #include "profile.h"
 #ifdef VIA_ENABLE
@@ -129,13 +130,19 @@ static inline void schedule_profile_rebuild(uint8_t profile_index) {
 // Launcher deja la politica en la posicion vieja hasta el siguiente boot,
 // cambio de perfil o giro del interruptor.
 //
-// El override vive aqui y no en telemetry.c (donde estaba) para no acoplar la
-// re-resolucion a ALEX_TELEMETRY_ENABLE: apagar los diagnosticos no debe
-// apagar esto en silencio.
-// Un solo flag para "el keymap cambio", con dos consumidores: las whitelists del
-// analog matrix (solo lab) y las teclas vigiladas de la telemetria (ambos
-// binarios). No se guarda tras ANALOG_POLICY_NEEDED porque la telemetria vive en
-// los dos builds y tambien resuelve por keycode.
+// El override vive aqui y no en telemetry.c para que politica e histograma no
+// dependan accidentalmente de ese modulo. Si los tres consumidores estan off,
+// el bloque completo desaparece del binario estable.
+// Un solo flag para "el keymap cambio", con tres consumidores de lab: politica
+// experimental, telemetria e histograma. Todo el mecanismo se compila fuera de
+// alex porque alli los tres estan apagados.
+#if defined(ALEX_TELEMETRY_ENABLE) || ANALOG_POLICY_NEEDED || ANALOG_WINDOW_HISTOGRAM
+#    define ALEX_DYNAMIC_KEYMAP_RESOLVE_NEEDED 1
+#else
+#    define ALEX_DYNAMIC_KEYMAP_RESOLVE_NEEDED 0
+#endif
+
+#if ALEX_DYNAMIC_KEYMAP_RESOLVE_NEEDED
 static bool pending_keymap_resolve = false;
 
 void kc_raw_hid_rx_user(uint8_t src, uint8_t *data, uint8_t length) {
@@ -164,6 +171,7 @@ void kc_raw_hid_rx_user(uint8_t src, uint8_t *data, uint8_t length) {
     (void)length;
 #endif
 }
+#endif
 
 layer_state_t default_layer_state_set_user(layer_state_t state) {
     if (state & (1UL << WIN_BASE)) {
@@ -192,22 +200,27 @@ void housekeeping_task_user(void) {
 #endif
 
     // Remap desde Launcher: recolocar todo lo que se declara por keycode.
+#if ALEX_DYNAMIC_KEYMAP_RESOLVE_NEEDED
     if (pending_keymap_resolve) {
         pending_keymap_resolve = false;
 #ifdef ALEX_TELEMETRY_ENABLE
         telemetry_resolve_keys();
 #endif
-        // El rebuild de perfil de abajo ya llama a la resolucion de la politica,
-        // asi que no la repetimos en el mismo tick de housekeeping.
+        // El rebuild de perfil de abajo ya llama a la resolucion de politica e
+        // histograma, asi que no la repetimos en el mismo tick de housekeeping.
         //
         // Este skip depende de que el camino de abajo SIEMPRE resuelva. Lo hace:
         // profile_select() solo devuelve false con prof_idx >= PROFILE_COUNT
         // (imposible aqui, el indice es 0 o 1 literal), y tanto la rama de
         // cambio de perfil como el update_travel_configs() explicito acaban
-        // llamando a analog_matrix_resolve_policy_keys(). Si eso cambia, este
-        // skip se vuelve una fuga silenciosa de la re-resolucion.
-        if (!pending_profile_rebuild) analog_matrix_resolve_policy_keys();
+        // llamando a ambas resoluciones. Si eso cambia, este skip se vuelve una
+        // fuga silenciosa de la re-resolucion.
+        if (!pending_profile_rebuild) {
+            analog_matrix_resolve_policy_keys();
+            analog_window_hist_resolve_keys();
+        }
     }
+#endif
 
     if (!pending_profile_rebuild) return;
 

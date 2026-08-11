@@ -157,7 +157,7 @@ __attribute__((weak)) void analog_matrix_physical_edge_hook(uint16_t keycode, bo
 // F9: minimo de tiempo ON *reportado* tras un press fisico (racional en
 // analog_matrix.h). Mismo sitio y mismas reglas que F6 — capa de reporte, la FSM
 // y el travel intactos — pero en el flanco opuesto: sostiene el ON en vez de el
-// OFF. Un slot: solo el espacio.
+// OFF. Dos slots experimentales: espacio y LShift.
 typedef struct {
     uint16_t deadline;     // timer_read() en el que expira la ventana ON
     bool     stretching;   // ventana activa: el release fisico se reporta ON
@@ -345,8 +345,10 @@ void analog_matrix_policy_dump(uint8_t *out) {
 
 #if ANALOG_PRESS_STRETCH_IN_GAMING_MODE
     out[27] = policy_pack_coord(press_stretch_row[0], press_stretch_col[0]);
+    out[28] = policy_pack_coord(press_stretch_row[1], press_stretch_col[1]);
 #else
     out[27] = 0xFF;
+    out[28] = 0xFF;
 #endif
 }
 #endif

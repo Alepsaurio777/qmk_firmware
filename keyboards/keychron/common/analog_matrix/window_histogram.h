@@ -1,11 +1,9 @@
 /* Histograma de ventanas ON/OFF + salud del teclado.
  *
- * (1-ago) Vive en LOS DOS binarios, y eso es una decision deliberada con coste:
- * el binario de torneo crece de forma permanente por diagnostico, que es una
- * desviacion de "torneo minimo". Lo que la hace defendible es el mismo argumento
- * que ya justifica la telemetria en DEVELOPMENT.md: esta en los dos porque la
- * comparacion torneo/lab necesita medir LOS DOS. Un histograma que solo existe
- * en lab mide el binario equivocado.
+ * Vive exclusivamente en alex_lab. El binario estable deja
+ * ANALOG_WINDOW_HISTOGRAM=0 y compila fuera estado, protocolo y hook por tecla.
+ * Las funciones que se validen aqui siguen viviendo en common/: promover una
+ * al estable es un cambio explicito de flag, no una copia de implementacion.
  *
  * Que mide, y por que asi:
  *   El evlog registra eventos y el analisis se hace en Python. Eso funciona pero
@@ -14,11 +12,9 @@
  *   sin perdida: cuenta cuanto duro cada ventana ON y OFF, en cubos cortados
  *   donde esta la fisica del problema (el tick de 50 ms de MC 1.8.9).
  *
- *   Dos capas por tecla, FISICA y REPORTADA. En torneo coinciden (no hay
- *   stretches) y una es redundante; se mantiene igual a proposito, porque
- *   asi el formato de paquete es identico en los dos binarios y el A/B es una
- *   resta directa. En lab, la distancia entre las dos capas ES exactamente lo
- *   que el clamp de F6/F9 rescato.
+ *   Dos capas por tecla, FISICA y REPORTADA. Con stretches apagados coinciden;
+ *   con ellos activos, la distancia entre ambas ES exactamente lo que el clamp
+ *   de F6/F9 rescato. El A/B se hace en lab cambiando solo esos flags.
  */
 #pragma once
 
@@ -57,20 +53,29 @@
 //   [18..21] uint32 LE — total de flancos vistos (detecta saturacion)
 #define AWH_DUMP_LEN 22
 
-// Salud: lo que hoy no tiene alarma.
-//   [0..2] contadores de tecla pegada (W/SPC/LSFT), saturantes
-//   [3..5] maximo de travel observado en W/SPC/LSFT
-//   [6]    peor maximo entre las teclas ya pulsadas — candidato a iman debil
+// Salud: dos medidas DIRECTAS por tecla, minimo y maximo de travel.
+//   min alto -> la tecla no vuelve a reposo = candidato a FANTASMA
+//   max bajo -> perdio recorrido = candidato a IMAN DEBIL
+//
+// (1-ago, revisado) Antes esto era un contador de "tecla pegada" que miraba si
+// una tecla se reportaba ON con el travel bajo su desactuacion. Se quito: esa
+// condicion NO PUEDE DARSE, porque la FSM se autocorrige — suelta en cuanto
+// travel <= regular.deactn_pt. Era una alarma incapaz de sonar. El fantasma real
+// es la deriva del reposo, y eso se ve en el minimo.
+//   [0..2] minimo de travel en W/SPC/LSFT
+//   [3..5] maximo de travel en W/SPC/LSFT
+//   [6]    peor maximo entre las observadas — iman debil
 //   [7]    posicion de esa tecla, (row << 4) | col
-//   [8]    cuantas teclas se han pulsado al menos una vez
-#define AWH_HEALTH_LEN 9
+//   [8]    peor minimo (el mas alto) — candidato a fantasma
+//   [9]    posicion de esa tecla
+//   [10]   cuantas teclas se han observado
+#define AWH_HEALTH_LEN 11
 
 #if ANALOG_WINDOW_HISTOGRAM
 
 // Resuelve las teclas vigiladas contra el keymap vivo. La llama
 // update_travel_configs(), igual que la politica: boot, cambio de perfil y giro
-// del interruptor. Separada de analog_matrix_resolve_policy_keys() a proposito —
-// asi el histograma no arrastra el volcado de politica al binario de torneo.
+// del interruptor; el keymap tambien la llama tras un remap en caliente.
 void analog_window_hist_resolve_keys(void);
 
 // Un barrido. La llaman los dos caminos de escaneo con el estado FISICO (antes

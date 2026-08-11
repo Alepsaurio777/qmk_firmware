@@ -45,19 +45,34 @@ typedef struct {
 static awh_layer_t awh[AWH_KEY_COUNT][AWH_LAYER_COUNT];
 
 // --- Salud -----------------------------------------------------------------
-static uint8_t  awh_stuck[AWH_KEY_COUNT];
-static uint16_t awh_stuck_since[AWH_KEY_COUNT];
-static bool     awh_stuck_open[AWH_KEY_COUNT];
-static uint8_t  awh_max_travel[MATRIX_ROWS][MATRIX_COLS];
-
-// Una tecla reportada ON con el travel por debajo de su desactuacion durante mas
-// de esto es un fantasma. 250 ms esta muy por encima de ANALOG_PRESS_STRETCH_MS
-// (55), asi que la ventana legitima de F9 no dispara el detector.
-#    ifndef ANALOG_STUCK_KEY_MS
-#        define ANALOG_STUCK_KEY_MS 250
-#    endif
+// (1-ago, revisado) Aqui vivia un "detector de tecla pegada" que contaba teclas
+// reportadas ON con el travel por debajo de su desactuacion. Se quito porque NO
+// PODIA DISPARARSE: la propia FSM se autocorrige — rt_regular_release_ready()
+// suelta en cuanto travel <= regular.deactn_pt, y esa comprobacion corre la
+// primera en los dos estados PRESSED. O sea, una alarma que no puede sonar,
+// ocupando sitio en un binario de torneo que acababa de crecer 1256 B.
+//
+// Y el fantasma REAL es la condicion contraria: cuando la calibracion de reposo
+// deriva, el travel lee ALTO con el dedo fuera, la FSM cree honestamente que la
+// tecla esta pulsada y no hay nada incoherente que detectar. Lo que delata eso
+// es que la tecla NUNCA VUELVE CERCA DE CERO.
+//
+// Por eso ahora se guarda el MINIMO de travel por tecla, espejo del maximo:
+//   - max bajo  -> iman debil / recorrido perdido
+//   - min alto  -> no vuelve a reposo = candidato a fantasma
+// Las dos son medidas directas y alcanzables, no inferencias sobre estado.
+static uint8_t awh_max_travel[MATRIX_ROWS][MATRIX_COLS];
+// BSS arranca a cero, asi que el primer resolve inicializa los minimos al tope.
+// Hacerlo en runtime evita guardar una matriz de 0xFF tambien en flash.
+static uint8_t awh_min_travel[MATRIX_ROWS][MATRIX_COLS];
+static bool    awh_health_initialized;
 
 void analog_window_hist_resolve_keys(void) {
+    if (!awh_health_initialized) {
+        memset(awh_min_travel, 0xFF, sizeof(awh_min_travel));
+        awh_health_initialized = true;
+    }
+
     memset(awh_mask, 0, sizeof(awh_mask));
     for (uint8_t i = 0; i < AWH_KEY_COUNT; i++) {
         awh_row[i] = 0xFF;
@@ -142,32 +157,16 @@ void analog_window_hist_observe(uint8_t row, uint8_t col, bool physical, bool re
     // --- Salud ---------------------------------------------------------------
     const uint8_t travel = analog_matrix_get_travel(row, col);
     if (travel > awh_max_travel[row][col]) awh_max_travel[row][col] = travel;
-
-    // Fantasma: reportada ON con el travel por debajo de la desactuacion durante
-    // mas de ANALOG_STUCK_KEY_MS seguidos.
-    extern analog_key_t analog_key_matrix[MATRIX_ROWS][MATRIX_COLS];
-    const uint8_t deactn = analog_key_matrix[row][col].regular.deactn_pt;
-
-    if (reported && travel < deactn) {
-        if (!awh_stuck_open[slot]) {
-            awh_stuck_open[slot]  = true;
-            awh_stuck_since[slot] = t;
-        } else if ((uint16_t)(t - awh_stuck_since[slot]) > ANALOG_STUCK_KEY_MS) {
-            if (awh_stuck[slot] != UINT8_MAX) awh_stuck[slot]++;
-            awh_stuck_open[slot] = false; // un evento por episodio, no por ms
-        }
-    } else {
-        awh_stuck_open[slot] = false;
-    }
+    if (travel < awh_min_travel[row][col]) awh_min_travel[row][col] = travel;
 }
 
 void analog_window_hist_reset(void) {
     memset(awh, 0, sizeof(awh));
     memset(awh_on_bucket, 0, sizeof(awh_on_bucket));
-    memset(awh_stuck, 0, sizeof(awh_stuck));
-    memset(awh_stuck_open, 0, sizeof(awh_stuck_open));
-    memset(awh_stuck_since, 0, sizeof(awh_stuck_since));
     memset(awh_max_travel, 0, sizeof(awh_max_travel));
+    // El minimo arranca en el tope para que la primera muestra lo baje.
+    memset(awh_min_travel, 0xFF, sizeof(awh_min_travel));
+    awh_health_initialized = true;
 }
 
 bool analog_window_hist_dump(uint8_t key_idx, uint8_t layer, uint8_t *out) {
@@ -196,32 +195,46 @@ void analog_window_hist_health(uint8_t *out) {
     memset(out, 0, AWH_HEALTH_LEN);
 
     for (uint8_t i = 0; i < AWH_KEY_COUNT; i++) {
-        out[i] = awh_stuck[i];
         const uint8_t r = awh_row[i];
         const uint8_t c = awh_col[i];
-        out[3 + i]      = (r < MATRIX_ROWS && c < MATRIX_COLS) ? awh_max_travel[r][c] : 0;
+        const bool    ok = (r < MATRIX_ROWS && c < MATRIX_COLS);
+        out[i]     = ok ? awh_min_travel[r][c] : 0;
+        out[3 + i] = ok ? awh_max_travel[r][c] : 0;
     }
 
-    // Peor maximo entre las teclas que se han llegado a pulsar. Es el candidato a
-    // iman debilitado: con AUTO_CALIBRATION y BOTTOM_OUT_LEARN a 0 en torneo,
-    // nada mas en el firmware se entera de que una tecla perdio recorrido.
-    uint8_t worst     = 0xFF;
-    uint8_t worst_pos = 0xFF;
-    uint8_t seen      = 0;
+    // Peor MAXIMO entre las teclas pulsadas: candidato a iman debilitado. Con
+    // AUTO_CALIBRATION y BOTTOM_OUT_LEARN a 0 en torneo, nada mas en el firmware
+    // se entera de que una tecla perdio recorrido.
+    uint8_t worst_max     = 0xFF;
+    uint8_t worst_max_pos = 0xFF;
+    // Peor MINIMO (el mas alto) entre todas: candidato a fantasma, porque una
+    // tecla que nunca vuelve cerca de cero tiene el reposo derivado.
+    uint8_t worst_min     = 0;
+    uint8_t worst_min_pos = 0xFF;
+    uint8_t seen          = 0;
+
     for (uint8_t r = 0; r < MATRIX_ROWS; r++) {
         for (uint8_t c = 0; c < MATRIX_COLS; c++) {
-            const uint8_t m = awh_max_travel[r][c];
-            if (m == 0) continue; // nunca pulsada: no dice nada
+            if (awh_min_travel[r][c] == 0xFF) continue; // nunca observada
             if (seen != UINT8_MAX) seen++;
-            if (m < worst) {
-                worst     = m;
-                worst_pos = (uint8_t)((r << 4) | c);
+
+            const uint8_t mx = awh_max_travel[r][c];
+            if (mx > 0 && mx < worst_max) {
+                worst_max     = mx;
+                worst_max_pos = (uint8_t)((r << 4) | c);
+            }
+            if (awh_min_travel[r][c] > worst_min) {
+                worst_min     = awh_min_travel[r][c];
+                worst_min_pos = (uint8_t)((r << 4) | c);
             }
         }
     }
-    out[6] = (worst == 0xFF) ? 0 : worst;
-    out[7] = worst_pos;
-    out[8] = seen;
+
+    out[6] = (worst_max == 0xFF) ? 0 : worst_max;
+    out[7] = worst_max_pos;
+    out[8] = worst_min;
+    out[9] = worst_min_pos;
+    out[10] = seen;
 }
 
 #endif // ANALOG_WINDOW_HISTOGRAM

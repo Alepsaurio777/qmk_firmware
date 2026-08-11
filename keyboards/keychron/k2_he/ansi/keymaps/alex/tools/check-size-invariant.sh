@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Enforza el invariante de los dos binarios (ver DEVELOPMENT.md, "La regla de oro"):
+# Enforza el invariante de los tres binarios (ver DEVELOPMENT.md, "La regla de oro"):
 # todo codigo experimental vive detras de un #if FLAG y el binario de TORNEO lo
 # compila FUERA. La prueba de que quedo bien aislado es que `alex` no crece.
 #
@@ -8,7 +8,9 @@
 # crece y nadie declaro por que, el script para.
 #
 # Uso (desde MSYS2 MinGW64, en la raiz del repo):
-#   make keychron/k2_he/ansi:alex keychron/k2_he/ansi:alex_lab
+#   make keychron/k2_he/ansi:alex
+#   make keychron/k2_he/ansi:alex_lab
+#   make keychron/k2_he/ansi:alex_cal_lab
 #   ./keyboards/keychron/k2_he/ansi/keymaps/alex/tools/check-size-invariant.sh
 #
 # Cuando el crecimiento es LEGITIMO (un arreglo de correccion en codigo que ya
@@ -20,6 +22,15 @@
 set -u
 
 # Baselines.
+#
+# 1-ago-2026 (calibracion reversible): alex_cal_lab nace en 57436 B. Hereda
+# torneo, suma Raw HID y el learner por confianza; aplica solo a RAM y permite
+# rollback. alex/alex_lab permanecen en sus baselines anteriores.
+#
+# 1-ago-2026 (separacion estable/lab): alex 55852 -> 53200 (-2652) al compilar
+# fuera telemetria, evlog, histograma y el callback de remap sin consumidores.
+# alex_lab 58268 -> 58484 (+216) por HEALTH v2, segundo slot F9 observable,
+# re-resolucion del histograma y sus tests/correcciones. Diagnostico solo en lab.
 #
 # 1-ago-2026 (Ola F, F9 slot 2 = LSHIFT): alex 55844 SIN CAMBIOS —prueba de que
 # el segundo slot se compila FUERA del torneo— y alex_lab 58088 -> 58252 (+164).
@@ -39,11 +50,10 @@ set -u
 # 1-ago-2026 (Ola E, histograma de ventanas): alex 54132 -> 55388 (+1256),
 # alex_lab 56656 -> 57848 (+1192). CRECE EL BINARIO DE TORNEO, y es deliberado.
 #
-# La pregunta que este script obliga a contestar es "¿fuga de lab o decisión?".
-# Es una DECISION, y con coste declarado: el histograma de ventanas ON/OFF vive
-# en los DOS binarios. Un histograma que sólo existiera en lab mediría el
-# binario equivocado, y la comparación torneo/lab es el eje del proyecto — es el
-# mismo argumento que ya justifica la telemetría en los dos (DEVELOPMENT.md).
+# Esta fue la decision de Ola E en ese commit: el histograma vivia en los dos
+# binarios para medir ambos. La separacion estable/lab de arriba la reemplaza:
+# ahora el A/B se hace dentro de lab apagando/encendiendo el flag, y el binario
+# final no carga instrumentacion.
 # Lo que se compra: las ventanas dejan de reconstruirse en Python desde un evlog
 # que pierde eventos en ráfaga, y pasan a contarse sin pérdida en firmware.
 #
@@ -59,8 +69,9 @@ set -u
 # 28-jul-2026: alex 54296 (era 54288; +8 por el arreglo B1, el
 # id_dynamic_keymap_reset que faltaba en la lista de re-resolucion — correccion,
 # no feature). alex_lab 56680.
-BASE_ALEX=55844
-BASE_LAB=58252
+BASE_ALEX=53200
+BASE_LAB=58484
+BASE_CAL_LAB=57436
 
 BUILD_DIR="${BUILD_DIR:-.build}"
 FAIL=0
@@ -95,7 +106,8 @@ check() {
     local name="$1" base="$2" hex="$BUILD_DIR/$1.hex"
 
     if [ ! -f "$hex" ]; then
-        echo "SALTADO  $name  (no existe $hex — compilalo primero)"
+        FAIL=1
+        echo "FALLA    $name  (no existe $hex — compilalo primero)"
         return
     fi
 
@@ -114,6 +126,7 @@ check() {
 
 check keychron_k2_he_ansi_alex     "$BASE_ALEX"
 check keychron_k2_he_ansi_alex_lab "$BASE_LAB"
+check keychron_k2_he_ansi_alex_cal_lab "$BASE_CAL_LAB"
 
 # ---------------------------------------------------------------------------
 # Invariante por SIMBOLOS (1-ago)
@@ -123,11 +136,15 @@ check keychron_k2_he_ansi_alex_lab "$BASE_LAB"
 # QUIERE decir — "el codigo de lab no esta en el binario de torneo" — mirando si
 # sus simbolos existen. Las dos capas se complementan: los bytes son la alarma de
 # humo, los simbolos el diagnostico.
-LAB_ONLY_SYMBOLS='stretch|predictive|scan_probe|policy'
+LAB_ONLY_SYMBOLS='stretch|predictive|scan_probe|policy|telemetry|evlog|window_hist|awh_|hist_(dump|reset)|health_dump|bottom_out_confidence|confident_bottom'
 
 check_symbols() {
     local elf="$BUILD_DIR/keychron_k2_he_ansi_alex.elf"
-    [ -f "$elf" ] || return 0
+    if [ ! -f "$elf" ]; then
+        FAIL=1
+        echo "FALLA    invariante por simbolos (no existe $elf)"
+        return
+    fi
 
     local leaked
     leaked=$(arm-none-eabi-nm "$elf" 2>/dev/null | grep -iE "$LAB_ONLY_SYMBOLS" || true)

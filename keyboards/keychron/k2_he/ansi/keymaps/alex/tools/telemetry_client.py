@@ -92,6 +92,7 @@ DIAG_CMD = 0xEE
 DIAG_EVLOG_OFF, DIAG_EVLOG_ON = 0x00, 0x01
 DIAG_TELEM_OFF, DIAG_TELEM_ON = 0x10, 0x11
 DIAG_POLICY_DUMP = 0x20
+DIAG_CAL_STATUS, DIAG_CAL_APPLY, DIAG_CAL_REVERT, DIAG_CAL_CLEAR = 0x40, 0x41, 0x42, 0x43
 EVLOG_VERSION = 3
 # v3: el byte `pressed` es mascara — bit0 pulsada, bit1 flanco FISICO (crudo,
 # antes de los stretches F6/F9). Con un build lab el flujo reportado no puede
@@ -101,6 +102,8 @@ EVLOG_PHYSICAL_BIT = 0x02
 
 POLICY_MAGIC = 0xEB
 POLICY_VERSION = 1
+CAL_MAGIC = 0xE8
+CAL_VERSION = 1
 
 
 def diag(dev, subcmd):
@@ -457,7 +460,7 @@ def run_policy(dev):
         print("Politica resuelta (contra el keymap VIVO, remaps de Launcher incluidos):\n")
         print(f"  predictivo      : {'ON' if flags & 0x01 else 'off'}")
         print(f"  F6 release-str. : {'ON' if flags & 0x02 else 'off'}   slots {coord(d[25])} {coord(d[26])}")
-        print(f"  F9 press-stretch: {'ON' if flags & 0x04 else 'off'}   slot  {coord(d[27])}")
+        print(f"  F9 press-stretch: {'ON' if flags & 0x04 else 'off'}   slots {coord(d[27])} {coord(d[28])}")
         print(f"  continuous RT   : {'ON' if flags & 0x08 else 'off'}")
         if flags & 0x01:
             print("\n  Mascaras predictivas por fila (bit = columna):")
@@ -476,16 +479,110 @@ def run_policy(dev):
     print("abierto acaparando el endpoint.")
 
 
+def _cal_request(dev, subcmd, arg=0, reply_kind=None):
+    dev.write(bytes([0x00, DIAG_CMD, subcmd, arg] + [0] * 28))
+    deadline = time.monotonic() + 2.0
+    while time.monotonic() < deadline:
+        pkt = dev.read(32, timeout_ms=500)
+        if not pkt or pkt[0] != CAL_MAGIC:
+            continue
+        if pkt[1] != CAL_VERSION:
+            raise RuntimeError(f"Version de calibracion {pkt[1]}, esperaba {CAL_VERSION}")
+        if reply_kind is not None and pkt[2] != reply_kind:
+            continue
+        return pkt
+    return None
+
+
+def run_calibration(dev, action=None):
+    """Control del learner robusto de alex_cal_lab.
+
+    Apply modifica solo RAM. Revert restaura el snapshot tomado al terminar la
+    calibracion de boot; reiniciar produce el mismo rollback aunque el cliente
+    no este disponible.
+    """
+    if action is not None:
+        if action == DIAG_CAL_APPLY:
+            replies = [_cal_request(dev, action, idx, reply_kind=1) for idx in range(len(KEYS))]
+            replies = [pkt for pkt in replies if pkt is not None]
+            if not replies:
+                print("Sin respuesta: esta funcion solo existe en alex_cal_lab.")
+                return
+            affected = sum(pkt[4] for pkt in replies)
+            if any(pkt[5] for pkt in replies):
+                print("APPLY rechazado: sal de Gaming primero. No se cambia la escala durante una partida.")
+            else:
+                print(f"APPLY volatil: {affected} de las 6 teclas visibles cambiadas en RAM; EEPROM intacta.")
+        else:
+            pkt = _cal_request(dev, action, reply_kind=1)
+            if pkt is None:
+                print("Sin respuesta: esta funcion solo existe en alex_cal_lab.")
+                return
+            affected = pkt[4]
+        if action == DIAG_CAL_REVERT:
+            print(f"REVERT: {affected} tecla(s) restauradas al snapshot de arranque.")
+        elif action == DIAG_CAL_CLEAR:
+            print("Muestras borradas; la calibracion activa no cambio.")
+
+    print("\nBottom-out por confianza (7 pulsaciones completas por tecla):")
+    print(f"  {'key':5s} {'muestras':>8s} {'baseline':>9s} {'activo':>7s} {'candidato':>10s} {'spread':>9s} estado")
+    any_reply = False
+    for idx, name in enumerate(KEYS):
+        pkt = _cal_request(dev, DIAG_CAL_STATUS, idx, reply_kind=0)
+        if pkt is None:
+            continue
+        any_reply = True
+        flags = pkt[6]
+        if flags & 0x80:
+            print(f"  {name:5s} {'-':>8s} {'-':>9s} {'-':>7s} {'-':>10s} {'-':>9s} sin resolver")
+            continue
+
+        u16 = lambda off: pkt[off] | (pkt[off + 1] << 8)
+        baseline, active, candidate = u16(8), u16(10), u16(12)
+        sample_min, sample_max = u16(14), u16(16)
+        spread = sample_max - sample_min if sample_max >= sample_min and sample_max else 0
+        state = []
+        if flags & 0x04:
+            state.append("APLICADO-RAM")
+        elif flags & 0x02:
+            state.append("LISTO")
+        else:
+            state.append("aprendiendo")
+        if flags & 0x08:
+            state.append("Gaming")
+        candidate_text = str(candidate) if candidate else "-"
+        print(f"  {name:5s} {pkt[7]:8d} {baseline:9d} {active:7d} {candidate_text:>10s} {spread:9d} {'/'.join(state)}")
+
+    if not any_reply:
+        print("Sin respuesta: flashea alex_cal_lab y cierra Launcher antes de consultar.")
+        return
+    print("\nNada se guarda en EEPROM. --cal-apply se ejecuta fuera de Gaming;")
+    print("--cal-revert o reiniciar vuelve a la calibracion anterior.")
+
+
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--plot", action="store_true", help="grafica de travel en vivo con matplotlib")
     ap.add_argument("--events", action="store_true", help="mistype-hunt: log + candidatos de chatter/rebote")
     ap.add_argument("--policy", action="store_true", help="volcar la politica por keycode ya resuelta a posiciones")
+    cal = ap.add_mutually_exclusive_group()
+    cal.add_argument("--cal-status", action="store_true", help="ver candidatos de bottom-out de alex_cal_lab")
+    cal.add_argument("--cal-apply", action="store_true", help="aplicar candidatos solo en RAM (reinicio revierte)")
+    cal.add_argument("--cal-revert", action="store_true", help="restaurar la calibracion de arranque")
+    cal.add_argument("--cal-clear", action="store_true", help="borrar muestras aprendidas sin cambiar calibracion")
     ap.add_argument("--csv", metavar="ARCHIVO", help="guardar a CSV (con --plot o --events)")
     args = ap.parse_args()
     device = find_device()
     try:
-        if args.policy:
+        if args.cal_status:
+            run_calibration(device)
+        elif args.cal_apply:
+            run_calibration(device, DIAG_CAL_APPLY)
+        elif args.cal_revert:
+            run_calibration(device, DIAG_CAL_REVERT)
+        elif args.cal_clear:
+            run_calibration(device, DIAG_CAL_CLEAR)
+        elif args.policy:
             run_policy(device)
         elif args.events:
             run_events(device, csv_path=args.csv)

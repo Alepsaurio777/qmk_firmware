@@ -186,6 +186,34 @@ static inline bool analog_matrix_is_gaming_mode(void) {
 #    define ANALOG_BOTTOM_OUT_LEARN_EPSILON 30
 #endif
 
+/* Laboratorio: aprendizaje de bottom-out por confianza y con rollback.
+ *
+ * A diferencia de ANALOG_BOTTOM_OUT_LEARN, este camino no modifica EEPROM ni
+ * aplica nada automaticamente. Reune una muestra por pulsacion completa,
+ * calcula una mediana robusta y deja el resultado como candidato. El cliente
+ * de diagnostico puede aplicarlo solamente en RAM o restaurar la calibracion
+ * capturada al terminar la calibracion de arranque. Un reset tambien revierte.
+ */
+#ifndef ANALOG_CONFIDENT_BOTTOM_OUT_ENABLE
+#    define ANALOG_CONFIDENT_BOTTOM_OUT_ENABLE 0
+#endif
+
+#ifndef ANALOG_CONFIDENT_BOTTOM_OUT_SAMPLES
+#    define ANALOG_CONFIDENT_BOTTOM_OUT_SAMPLES 7
+#endif
+
+#ifndef ANALOG_CONFIDENT_BOTTOM_OUT_DEEP_TRAVEL
+#    define ANALOG_CONFIDENT_BOTTOM_OUT_DEEP_TRAVEL 220
+#endif
+
+#ifndef ANALOG_CONFIDENT_BOTTOM_OUT_RELEASE_TRAVEL
+#    define ANALOG_CONFIDENT_BOTTOM_OUT_RELEASE_TRAVEL 30
+#endif
+
+#ifndef ANALOG_CONFIDENT_BOTTOM_OUT_MAX_SPREAD
+#    define ANALOG_CONFIDENT_BOTTOM_OUT_MAX_SPREAD 40
+#endif
+
 /* Depth-compare SOCD (Rappy Snappy): a challenger key must be deeper than the
  * current winner by this many travel units (TRAVEL_SCALE units; 6 = 0.1 mm)
  * to take over. Without it, sensor noise at near-equal depths flips the
@@ -445,7 +473,7 @@ void analog_matrix_resolve_policy_keys(void);
 //   [25]     slot 0 de F6, empaquetado (row << 4) | col — 0xFF sin resolver
 //   [26]     slot 1 de F6, idem
 //   [27]     slot 0 de F9, idem
-//   [28]     reservado (0)
+//   [28]     slot 1 de F9, idem
 // Continuous RT reporta solo su bit de flags: esta apagado y su mascara no
 // justifica 12 bytes hasta que se use.
 #define ANALOG_POLICY_DUMP_LEN 29

@@ -35,6 +35,7 @@
 #define ANALOG_RELEASE_STRETCH_KEY1_KEYCODE KC_W
 #define ANALOG_RELEASE_STRETCH_KEY2_KEYCODE KC_SPACE
 #define ANALOG_PRESS_STRETCH_KEY1_KEYCODE KC_SPACE
+#define ANALOG_PRESS_STRETCH_KEY2_KEYCODE KC_LEFT_SHIFT
 
 // --- Defaults del perfil gaming (profiles.c) --------------------------------
 // No los consume el codigo bajo test; los usan los tests para expresar

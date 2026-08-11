@@ -6,9 +6,9 @@ DEBOUNCE_TYPE = none
 MOUSEKEY_ENABLE = no
 LTO_ENABLE = yes
 
-# Diagnostico explicito y facil de retirar. Se mantiene en torneo porque la
-# comparacion torneo/lab necesita medir ambos; queda inerte hasta comando 0xEE.
-ALEX_TELEMETRY_ENABLE ?= yes
+# Diagnostico exclusivo del binario lab. El estable no compila telemetry.c ni
+# conserva sus callbacks/tareas: no basta con dejar el stream apagado en runtime.
+ALEX_TELEMETRY_ENABLE ?= no
 ifeq ($(strip $(ALEX_TELEMETRY_ENABLE)), yes)
     OPT_DEFS += -DALEX_TELEMETRY_ENABLE
     SRC += $(ALEX_TELEMETRY_SOURCE)

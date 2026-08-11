@@ -1,5 +1,14 @@
 # Telemetría de profundidad (Fase 0 del ROADMAP)
 
+Disponible únicamente en `alex_lab`. El binario `alex` estable no compila este
+protocolo, sus buffers ni sus tareas. Las mediciones sirven para validar cambios
+en la lógica compartida; una función se promociona después por flag al estable,
+sin copiar implementación ni llevarse la instrumentación.
+
+Para una comparación A/B se usa `alex_lab` en ambos lados y se apaga/enciende
+solamente el flag bajo prueba. `alex` queda como artefacto final limpio; no se
+instrumenta para medirlo.
+
 ## Para qué es
 
 Transmite en vivo, por el endpoint Raw HID que ya usa VIA, el travel analógico
@@ -124,7 +133,7 @@ observada con probabilidad ~`d/50` cuando `d < 50`. En cristiano:
 - **Espacio**: ventana no vista = `jumpTicks` sin resetear → el siguiente
   salto puede retrasarse hasta 500 ms justo bajo combo.
 
-Un `%<50` alto en W/SPC con el build de torneo es la evidencia que justifica
+Un `%<50` alto en W/SPC con el experimento correspondiente apagado en lab es la evidencia que justifica
 el **release-stretch** (F6, solo `alex_lab`): con él activo, W y SPC no deben
 mostrar ninguna ventana < 55 ms — si aparecen, el stretch no está actuando.
 
@@ -149,8 +158,8 @@ antes de los stretches F6/F9). En v2 ese byte era un booleano.
 ### Los dos flujos: reportado vs físico
 
 El evlog cuelga de `process_record_user`, o sea **aguas abajo** de F6 y F9. En un
-build de torneo eso da igual (sin stretch, reportado == físico), pero en un build
-lab el clamp se come justo los eventos que hay que contar: los taps de <55 ms en
+Con los stretches apagados en lab, reportado == físico; al activarlos el clamp
+se come justo los eventos que hay que contar: los taps de <55 ms en
 W/SPC. Medir las dos cosas exigía dos sesiones con drills distintos, y que dos
 drills «iguales» sean comparables es la mayor fuente de error del A/B.
 
@@ -184,3 +193,23 @@ Sólo responde en builds con política activa (lab). En torneo `ANALOG_POLICY_NE
 es 0, no hay nada que volcar, y compilarlo rompería el invariante de que el
 binario de torneo no crece por diagnóstico opcional — el `0x20` cae ahí al camino
 de «comando desconocido» y apaga los diagnósticos.
+
+## Bottom-out por confianza (`alex_cal_lab`)
+
+Este tercer build aísla una calibración experimental: parte de `alex`, no de
+`alex_lab`, por lo que no arrastra RT predictivo ni stretches. Reúne siete
+bottom-outs físicos distintos por tecla, usa la mediana, tolera un extremo por
+lado y sólo marca `LISTO` una ventana central coherente que realmente amplía el
+rango. Aprender no modifica la calibración.
+
+```bash
+python tools/telemetry_client.py --cal-status  # baseline/activo/candidato
+python tools/telemetry_client.py --cal-apply   # candidato -> RAM, sólo fuera de Gaming
+python tools/telemetry_client.py --cal-revert  # snapshot de boot -> RAM
+python tools/telemetry_client.py --cal-clear   # borra muestras, no cambia escala
+```
+
+No existe comando `save`: es deliberado. Ni apply ni revert escriben
+`saved_calib_values` o EEPROM. Un reinicio siempre vuelve a la calibración que
+había antes de flashear el experimento; una calibración iniciada desde Launcher
+revierte primero cualquier preview y toma un snapshot nuevo cuando termina.

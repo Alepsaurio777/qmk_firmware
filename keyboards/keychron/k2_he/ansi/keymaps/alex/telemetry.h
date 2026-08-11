@@ -10,9 +10,9 @@
 // un keycode depende del keymap, y el keymap de VIA vive en EEPROM, que puede
 // pisar el default del firmware y dejar el toggle inalcanzable.
 //
-// Acoplamiento explicito: rules-common.mk define ALEX_TELEMETRY_ENABLE y
-// keymap.c guarda include/llamadas con ese flag. Para compilarlo fuera basta
-// ALEX_TELEMETRY_ENABLE = no; no hay que editar logica compartida.
+// Acoplamiento explicito: alex_lab/rules.mk define ALEX_TELEMETRY_ENABLE y
+// keymap.c guarda include/llamadas con ese flag. `alex` lo deja en no desde
+// rules-common.mk; no hay que editar logica compartida para aislarlo.
 
 void telemetry_task(void);                                                        // housekeeping
 void evlog_task(void);                                                            // housekeeping

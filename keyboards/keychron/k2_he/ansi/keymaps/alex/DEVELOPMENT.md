@@ -1,22 +1,28 @@
 # Desarrollo: binario de torneo vs experimental
 
-Dos binarios del mismo teclado, misma lógica, distinto perfil de riesgo.
+Tres binarios del mismo teclado, misma lógica, distinto perfil de riesgo.
 
 | Keymap | Binario | Para qué |
 |---|---|---|
 | `alex` | `keychron_k2_he_ansi_alex.bin` | **Torneo.** Mínimo, probado, sin instrumentación de debug ni features especulativas. Es el que flasheas para jugar en serio. |
-| `alex_lab` | `keychron_k2_he_ansi_alex_lab.bin` | **Laboratorio.** Todo encendido — RT predictivo, probe de timing. Aquí se rompen cosas. |
+| `alex_lab` | `keychron_k2_he_ansi_alex_lab.bin` | **Laboratorio.** Telemetría, histograma y experimentos encendidos — RT predictivo, stretches y probe de timing. Aquí se miden y se rompen cosas. |
+| `alex_cal_lab` | `keychron_k2_he_ansi_alex_cal_lab.bin` | **Calibración reversible.** Hereda torneo, agrega telemetría y el learner robusto de bottom-out. No enciende los otros experimentos de `alex_lab`. |
 
 ## Cómo se relacionan (importante)
 
 `alex_lab` **no duplica ni una línea de lógica**. Su estructura:
 - `keymap.c` → `#include "../alex/keymap.c"` (misma lógica de teclado).
 - `config.h` → `#include "../alex/config.h"` + los `#define` experimentales (el inventario de abajo es la lista canónica).
-- `rules.mk` → incluye `rules-common.mk`; solo cambia la ruta a `telemetry.c`.
+- `rules.mk` → incluye `rules-common.mk` y activa `telemetry.c`; `alex` la deja compilada fuera.
 
 Consecuencia: **cualquier cambio de lógica se hace en `alex`** y `alex_lab` lo hereda automáticamente. Nunca editas `alex_lab` salvo para encender/apagar un flag experimental. No hay drift posible entre los dos.
 
 ## La regla de oro
+
+`alex_cal_lab` también incluye `alex/keymap.c`, pero hereda directamente
+`alex/config.h`: su única feature de comportamiento es
+`ANALOG_CONFIDENT_BOTTOM_OUT_ENABLE`. Así se puede juzgar la calibración sin RT
+predictivo ni stretches actuando al mismo tiempo.
 
 Todo código experimental que viva en `common/` (el core analógico compartido) **debe ir detrás de un `#if FLAG`**, apagado por defecto. Así el binario de torneo lo compila **fuera** — no basta con apagarlo en runtime, porque el código seguiría ocupando flash y ciclos.
 
@@ -33,7 +39,8 @@ Bien (se compila fuera cuando el flag está off):
 
 La prueba de que quedó bien aislado: el **delta de tamaño** entre los dos `.bin`. Si `alex` no creció al añadir la feature, está fuera de verdad.
 
-Referencia actual (28-jul): **`alex` 54296 B**, **`alex_lab` 56680 B**.
+Referencia actual (1-ago): **`alex` 53200 B**, **`alex_lab` 58484 B** y
+**`alex_cal_lab` 57436 B**.
 
 Y ya no se comprueba a ojo. `tools/check-size-invariant.sh` lleva las dos
 baselines y **falla el build si cualquiera se mueve**, en cualquier dirección —
@@ -43,17 +50,22 @@ que es exactamente la declaración que antes sólo existía en la cabeza de quie
 compilaba.
 
 ```bash
-make keychron/k2_he/ansi:alex keychron/k2_he/ansi:alex_lab
+make keychron/k2_he/ansi:alex
+make keychron/k2_he/ansi:alex_lab
+make keychron/k2_he/ansi:alex_cal_lab
 ./keyboards/keychron/k2_he/ansi/keymaps/alex/tools/check-size-invariant.sh
 ```
 
-Matiz importante sobre el invariante: sólo aplica a **features experimentales
-detrás de un flag**. No aplica a arreglos de corrección en código que está en
-torneo a propósito — la telemetría, por ejemplo, que vive en los dos binarios
-porque la comparación torneo/lab necesita medir ambos. El 24-jul `alex` creció de
-53952 a 54288 B al resolver las teclas vigiladas por keycode en vez de por
-coordenada fija; eso es correcto y no una fuga. Si `alex` crece, la pregunta no es
-«¿cuánto?» sino **«¿es una feature de lab o un arreglo de algo que ya estaba?»**.
+No pongas keymaps con `config.h` distintos como varios objetivos de una sola
+invocación `make`: este fork puede conservar defines LTO entre objetivos. Usa
+una invocación separada por keymap, como arriba.
+
+Matiz importante sobre el invariante: sólo aplica a **features experimentales o
+diagnósticos detrás de un flag**. No aplica a arreglos de corrección en código
+que está en torneo a propósito. Telemetría e histograma son ahora exclusivos de
+`alex_lab`; si cualquiera de sus símbolos aparece en `alex`, es una fuga. Si
+`alex` crece, la pregunta no es «¿cuánto?» sino **«¿es una feature de lab o un
+arreglo de algo que ya estaba?»**.
 
 ## Cómo añadir una feature experimental nueva
 
@@ -77,6 +89,8 @@ coordenada fija; eso es correcto y no una fuga. Si `alex` crece, la pregunta no 
 qmk compile -kb keychron/k2_he/ansi -km alex
 # Laboratorio
 qmk compile -kb keychron/k2_he/ansi -km alex_lab
+# Calibración reversible
+qmk compile -kb keychron/k2_he/ansi -km alex_cal_lab
 ```
 (vía MSYS2 MinGW64; `qmk` no está en el PATH de PowerShell).
 
@@ -89,7 +103,8 @@ qmk compile -kb keychron/k2_he/ansi -km alex_lab
 | report rate USB | 1 kHz | 1 kHz | Fijo por descriptor (`bInterval=1`); no existe flag runtime |
 | `ANALOG_BOTTOM_OUT_LEARN` | **0** | **1** | Aprende bottom-out por tecla, solo-crece (torneo lo apaga: drift descartado con datos, config inmutable) |
 | `ANALOG_SOCD_DEEPER_HYSTERESIS` | 6 | 6 | Histéresis del Rappy Snappy (anti-chatter A/D) |
-| `ALEX_TELEMETRY_ENABLE` | sí | sí | Diagnóstico explícito; arranque/parada por comando HID 0xEE |
+| `ALEX_TELEMETRY_ENABLE` | **no** | **sí** | Raw HID de diagnóstico, travel y event logger |
+| `ANALOG_WINDOW_HISTOGRAM` | **0** | **1** | Histograma ON/OFF y salud; hook por tecla sólo en lab |
 | `USB_SOF_TIMING_PROBE` | **no** | **sí** | Instrumentación de duración/fase del barrido |
 | `ANALOG_PREDICTIVE_ACTUATION_IN_GAMING_MODE` | **0** | **1** | RT predictivo por velocidad (especulativo) |
 | `ANALOG_RELEASE_STRETCH_IN_GAMING_MODE` | **0** | **1** | F6: OFF reportado ≥55 ms tras release físico de W/SPC (el tick de 50 ms de MC siempre lo ve) |
@@ -97,6 +112,30 @@ qmk compile -kb keychron/k2_he/ansi -km alex_lab
 | `ANALOG_PREDICTIVE_PRESS_KEY_MASK` / `_REPRESS_KEY_MASK` | 0x3F (inertes) | **0x29 / 0x28** | F7: whitelist predictiva por camino — press SPC+A+D; re-press solo A+D (con F6, predecir el re-press de SPC no adelanta nada y difiere el fantasma) |
 
 El timestamp del SOF lo provee `usb_main.c` mientras `ANALOG_SCAN_SOF_SYNC` **o** `USB_SOF_TIMING_PROBE` estén activos, así que el torneo tiene sync sin arrastrar el probe.
+
+`alex_cal_lab` conserva los valores de `alex` en esta tabla y sólo cambia dos
+cosas: telemetría Raw HID = sí y `ANALOG_CONFIDENT_BOTTOM_OUT_ENABLE = 1`.
+`ANALOG_BOTTOM_OUT_LEARN` permanece en 0 porque el learner viejo aplica durante
+el uso y puede persistir; mezclar ambos rompería el rollback.
+
+## Experimento de calibración reversible
+
+El learner de `alex_cal_lab` toma **una** muestra por pulsación que alcanza la
+zona profunda y vuelve a soltar; sostener la tecla no infla la confianza. Con
+siete muestras ordena la ventana, ignora un extremo por lado, exige que las
+cinco centrales abarquen como máximo 40 cuentas raw y que la mediana mejore el
+fondo actual por más de 30 cuentas. Hasta entonces no cambia nada.
+
+```bash
+python keyboards/keychron/k2_he/ansi/keymaps/alex/tools/telemetry_client.py --cal-status
+python keyboards/keychron/k2_he/ansi/keymaps/alex/tools/telemetry_client.py --cal-apply
+python keyboards/keychron/k2_he/ansi/keymaps/alex/tools/telemetry_client.py --cal-revert
+python keyboards/keychron/k2_he/ansi/keymaps/alex/tools/telemetry_client.py --cal-clear
+```
+
+`--cal-apply` sólo funciona fuera de Gaming y modifica exclusivamente RAM.
+`--cal-revert` funciona también en Gaming. Reiniciar o flashear otro build
+revierte aunque no se ejecute el cliente: EEPROM nunca recibe el candidato.
 
 ## Criterio de promoción lab → torneo
 
@@ -144,7 +183,7 @@ explícitamente en Minemen/Hypixel, baneado en CS2/ESL.
 ## Gotchas conocidos
 
 - Las whitelists por keycode (continuous RT, RT predictivo, release/press
-  stretch) y las teclas vigiladas por la telemetría se resuelven contra
+  stretch), las teclas vigiladas por telemetría y las del histograma se resuelven contra
   `ANALOG_POLICY_LAYER` en `update_travel_configs()` — boot, cambio de perfil y
   giro del interruptor — más la re-resolución en caliente tras un remap de VIA.
   **La coincidencia de keycode es exacta**: un `KC_W` envuelto en mod-tap o
@@ -192,16 +231,18 @@ test pasa, es sobre el mismo código que corre en el teclado.
 cd keyboards/keychron/common/analog_matrix/hosttest && make run
 ```
 
-Cada suite se compila **dos veces**, con los flags de los dos binarios. En torneo
-eso comprueba además que los stretches son de verdad passthrough. Necesita gcc de
-host (`pacman -S mingw-w64-x86_64-gcc`).
+Las suites del camino de input se compilan con las dos configuraciones; en
+torneo comprueban además que los stretches son passthrough. El histograma se
+compila y ejecuta sólo en la configuración lab, igual que en los binarios reales.
+Necesita gcc de host (`pacman -S mingw-w64-x86_64-gcc`).
 
 ## Histograma de ventanas
 
-Vive en los **dos** binarios — decisión deliberada con coste declarado, mismo
-argumento que la telemetría: la comparación torneo/lab necesita medir los dos.
-Cuenta duraciones de ventana ON/OFF en cubos cortados en el tick de 50 ms, en
-capa física y reportada. Comandos `0xEE 0x30/0x31/0x32`. Racional completo en
+Vive sólo en **`alex_lab`**. Cuenta duraciones de ventana ON/OFF en cubos
+cortados en el tick de 50 ms, en capa física y reportada. Comandos
+`0xEE 0x30/0x31/0x32`. La implementación permanece en `common/` detrás de flag:
+si sus resultados justifican una corrección, se promociona esa corrección al
+estable, no la instrumentación. Racional completo en
 `common/analog_matrix/window_histogram.h`.
 
 ## Auditoría del batch del 1-ago

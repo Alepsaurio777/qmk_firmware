@@ -206,14 +206,9 @@
 // el sprint, asi que 55 ms de shift forzado obligan a re-doble-tap de W.
 #define ANALOG_PRESS_STRETCH_KEY2_KEYCODE KC_LEFT_SHIFT
 
-// (1-ago) Histograma de ventanas ON/OFF + contadores de salud. EN LOS DOS
-// BINARIOS, y el coste hay que decirlo: el binario de torneo crece de forma
-// permanente por diagnostico, que es una desviacion de "torneo minimo". Lo que
-// lo hace defendible es el mismo argumento que ya justifica la telemetria en
-// DEVELOPMENT.md — vive en los dos porque la comparacion torneo/lab necesita
-// medir LOS DOS. Un histograma que solo existe en lab mide el binario
-// equivocado. Racional completo en common/analog_matrix/window_histogram.h.
-#define ANALOG_WINDOW_HISTOGRAM 1
+// El histograma de ventanas ON/OFF es instrumentacion de lab. Su default es 0
+// en window_histogram.h y alex_lab/config.h lo habilita explicitamente; el
+// binario estable no compila su estado ni su hook de barrido.
 
 // Tap-hold configurations to make spacebar/other keys feel responsive if mapped as layer-taps or mod-taps
 #define TAPPING_TERM 175

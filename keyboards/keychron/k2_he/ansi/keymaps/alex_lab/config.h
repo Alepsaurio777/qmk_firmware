@@ -10,6 +10,10 @@
 // SOF), exportada en el paquete v2 de telemetria. Debug, fuera del torneo.
 #define USB_SOF_TIMING_PROBE
 
+// Diagnostico agregado de ventanas ON/OFF y salud. Vive solo en lab: el binario
+// estable no paga su hook por tecla, RAM ni protocolo Raw HID.
+#define ANALOG_WINDOW_HISTOGRAM 1
+
 // RT predictivo por velocidad: enciende el feed de vel_ema en update_raw_value
 // y su consumo en la FSM del rapid trigger. Especulativo (dispara antes del
 // cruce fisico) — a evaluar con la telemetria antes de considerarlo estable.

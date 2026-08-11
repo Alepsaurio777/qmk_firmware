@@ -44,6 +44,28 @@ static void hold(uint8_t row, uint8_t col, bool state, uint16_t ms) {
 }
 
 // ---------------------------------------------------------------------------
+// 0. HEALTH es valido desde boot, sin depender de un reset del cliente
+// ---------------------------------------------------------------------------
+static void test_health_initialized_at_boot(void) {
+    uint8_t h[AWH_HEALTH_LEN];
+
+    hosttest_keymap_clear();
+    hosttest_keymap_set(ROW_W, COL_W, KC_W);
+    hosttest_set_gaming();
+    hosttest_clock_set(1000);
+    analog_window_hist_resolve_keys();
+
+    analog_key_matrix[ROW_W][COL_W].travel = 42;
+    analog_window_hist_observe(ROW_W, COL_W, false, false);
+    analog_window_hist_health(h);
+
+    CHECK(h[0] == 42, "minimo desde boot = %u, esperaba la primera muestra (42)", h[0]);
+    CHECK(h[10] == 1, "teclas observadas desde boot = %u, esperaba 1", h[10]);
+
+    analog_window_hist_reset();
+}
+
+// ---------------------------------------------------------------------------
 // 1. Las ventanas caen en el cubo que les toca
 // ---------------------------------------------------------------------------
 // Fronteras: [0] <25, [1] [25,50), [2] [50,55], [3] >55.
@@ -165,41 +187,58 @@ static void test_dump_rejects_bad_index(void) {
 }
 
 // ---------------------------------------------------------------------------
-// 6. Salud: maximo de travel y deteccion del peor
+// 6. Salud: minimo y maximo de travel
 // ---------------------------------------------------------------------------
-static void test_health_max_travel(void) {
+// max bajo -> iman debil.  min alto -> la tecla no vuelve a reposo = fantasma.
+// Las dos son medidas directas; el "detector de tecla pegada" que habia antes se
+// quito porque su condicion no podia darse (la FSM se autocorrige).
+static void test_health_travel_extremes(void) {
     uint8_t h[AWH_HEALTH_LEN];
     setup();
 
     // El histograma lee el travel del analog_key_matrix global.
     analog_key_matrix[ROW_W][COL_W].travel     = 200;
     analog_key_matrix[ROW_SPC][COL_SPC].travel = 150;
+    hold(ROW_W, COL_W, false, 3);
+    hold(ROW_SPC, COL_SPC, false, 3);
 
+    // Ambas bajan: W vuelve a reposo, SPC se queda alta (reposo derivado).
+    analog_key_matrix[ROW_W][COL_W].travel     = 0;
+    analog_key_matrix[ROW_SPC][COL_SPC].travel = 30;
     hold(ROW_W, COL_W, false, 3);
     hold(ROW_SPC, COL_SPC, false, 3);
 
     analog_window_hist_health(h);
 
+    CHECK(h[0] == 0, "min travel de W = %u, esperaba 0 (vuelve a reposo)", h[0]);
+    CHECK(h[1] == 30, "min travel de SPC = %u, esperaba 30 (no vuelve)", h[1]);
     CHECK(h[3] == 200, "max travel de W = %u, esperaba 200", h[3]);
     CHECK(h[4] == 150, "max travel de SPC = %u, esperaba 150", h[4]);
-    // El peor entre las pulsadas es el candidato a iman debil.
-    CHECK(h[6] == 150, "peor max travel = %u, esperaba 150 (SPC)", h[6]);
-    CHECK(h[7] == ((ROW_SPC << 4) | COL_SPC), "posicion del peor = 0x%02X, esperaba 0x%02X", h[7], (ROW_SPC << 4) | COL_SPC);
 
-    // Solo-crece: un travel menor despues no debe bajar el maximo.
-    analog_key_matrix[ROW_W][COL_W].travel = 50;
+    // Peor maximo = candidato a iman debil.
+    CHECK(h[6] == 150, "peor max = %u, esperaba 150 (SPC)", h[6]);
+    CHECK(h[7] == ((ROW_SPC << 4) | COL_SPC), "posicion del peor max = 0x%02X", h[7]);
+
+    // Peor minimo = candidato a fantasma.
+    CHECK(h[8] == 30, "peor min = %u, esperaba 30 (SPC no vuelve a reposo)", h[8]);
+    CHECK(h[9] == ((ROW_SPC << 4) | COL_SPC), "posicion del peor min = 0x%02X", h[9]);
+
+    // Solo-crece / solo-decrece: un valor intermedio posterior no mueve nada.
+    analog_key_matrix[ROW_W][COL_W].travel = 100;
     hold(ROW_W, COL_W, false, 3);
     analog_window_hist_health(h);
     CHECK(h[3] == 200, "el maximo no debe encogerse (es %u)", h[3]);
+    CHECK(h[0] == 0, "el minimo no debe crecer (es %u)", h[0]);
 }
 
 int main(void) {
+    test_health_initialized_at_boot();
     test_bucket_boundaries();
     test_on_off_not_mixed();
     test_layers_are_independent();
     test_only_watched_keys();
     test_dump_rejects_bad_index();
-    test_health_max_travel();
+    test_health_travel_extremes();
 
     return hosttest_report("window_histogram");
 }

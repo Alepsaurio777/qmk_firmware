@@ -1,5 +1,11 @@
 # Guía de auditoría — las 6 olas del 1-ago-2026
 
+> **Cambio posterior de arquitectura:** `alex` es ahora el estable limpio, sin
+> telemetría ni histograma; toda instrumentación vive en `alex_lab`. Los tamaños
+> actuales son 53200 / 58484 B y los hosttests reportan 123 comprobaciones entre
+> las dos configuraciones. Las referencias antiguas de tamaño de esta guía son
+> historia del batch, no baselines vigentes.
+
 Qué revisar, en qué orden, y qué debería ser cierto. Ordenado por **riesgo**, no
 por número de ola: primero lo que puede morderte en partida.
 
@@ -9,7 +15,7 @@ por número de ola: primero lo que puede morderte en partida.
 |---|---|
 | Compila (los dos binarios, sin warnings nuevos) | ✅ verificado |
 | Invariante de tamaño y de símbolos | ✅ verificado |
-| Lógica (FSM, F6/F9, resolución, histograma) | ✅ 111 comprobaciones, dos configuraciones |
+| Lógica (FSM, F6/F9, resolución, histograma) | ✅ 123 comprobaciones entre dos configuraciones |
 | **Comportamiento en el teclado real** | ❌ **NADA de esto se ha flasheado** |
 
 **Esa última fila es la importante.** No tengo el teclado. Todo lo de abajo está
@@ -26,8 +32,8 @@ make keychron/k2_he/ansi:alex keychron/k2_he/ansi:alex_lab
 cd keyboards/keychron/common/analog_matrix/hosttest && make run
 ```
 
-Estado actual: `alex` 55844 B, `alex_lab` 58252 B, invariante de símbolos limpio,
-111 comprobaciones en verde.
+Estado actual: `alex` 53200 B, `alex_lab` 58484 B, invariante de símbolos limpio,
+123 comprobaciones en verde.
 
 ---
 
@@ -85,14 +91,13 @@ toqué**.
 
 ---
 
-## 3. RIESGO MEDIO — Ola E: el histograma vive en el binario de torneo
+## 3. RESUELTO — Ola E: el histograma salió del binario de torneo
 
-**Qué cambió:** +1256 B permanentes en `alex` por diagnóstico, y un gancho nuevo
-en el barrido que corre para cada tecla.
+**Estado actual:** el histograma, su estado y su gancho viven sólo en `alex_lab`.
+`alex` compila fuera toda esa instrumentación junto con telemetría/evlog.
 
-**Por qué auditar:** es la desviación consciente de "torneo mínimo" que
-aprobaste. Merece que compruebes que el coste en *tiempo* también es aceptable,
-no sólo el de flash.
+**Por qué seguir auditándolo:** el coste temporal importa para la validez de las
+mediciones de lab, aunque ya no pueda afectar al binario de torneo.
 
 **Qué comprobar:**
 1. Flashea `alex_lab` (que lleva el probe de timing) y mira la duración del
@@ -116,8 +121,8 @@ Eso es trabajo pendiente, ver la sección final.
 (`analog_process_key_sample`), y salida rápida en `analog_matrix_effective_mode`.
 
 **Por qué es menos arriesgado de lo que suena:** va detrás de la Ola B a
-propósito. La cadena F9→F6, la FSM y el histograma están cubiertos por los 111
-tests, y los dos binarios **encogieron**.
+propósito. La cadena F9→F6, la FSM y el histograma están cubiertos por los
+hosttests; el recuento vigente está al inicio de esta guía.
 
 **Qué comprobar:**
 1. `git show 197d0eb` — que la secuencia dentro de `analog_process_key_sample`

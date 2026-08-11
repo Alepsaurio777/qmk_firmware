@@ -1,9 +1,10 @@
 #pragma once
 
-// Binario ESTABLE / torneo: SOF-sync + pipeline + telemetria de travel, SIN el
-// probe de timing (debug) ni prediccion. El keymap alex_lab hereda este config
-// y enciende esas dos cosas para experimentar. El timestamp de SOF lo provee
-// usb_main.c mientras SOF_SYNC este activo, asi que el sync no necesita probe.
+// Binario ESTABLE / torneo: SOF-sync + pipeline, sin telemetria, histograma,
+// probe de timing ni features especulativas. El keymap alex_lab hereda esta
+// base y enciende diagnosticos/experimentos encima. El timestamp de SOF lo
+// provee usb_main.c mientras SOF_SYNC este activo, asi que el sync no necesita
+// probe.
 
 // Fase 3 (parte 2a): procesar la columna previa durante el settle de la
 // siguiente. Medido: 1041-1052 us sin pipeline -> 880-925 us con pipeline.
