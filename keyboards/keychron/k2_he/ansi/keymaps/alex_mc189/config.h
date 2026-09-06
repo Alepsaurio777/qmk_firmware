@@ -47,10 +47,10 @@
 // 2. Retener ganador en bottom-out: en combate PvP evita la cancelacion de velocidad a 0 si ambas teclas tocan fondo.
 #define ANALOG_SOCD_BOTTOM_OUT_HOLD_WINNER 1
 
-// --- EXPERIMENTAL: Sincronizacion de Tick MC 1.8.9 (Press Stretch F9) ---
-// Garantiza >= 55 ms de pulso ON en Space para que el tick de 50 ms de 1.8.9 nunca pierda saltos en bhop.
+// --- Sincronizacion de Tick MC 1.8.9 (Press Stretch F9) ---
+// Garantiza >= 55 ms de pulso ON en Space para que el tick de 50 ms de 1.8.9 nunca pierda saltos en bhop/parkour.
 #undef ANALOG_PRESS_STRETCH_IN_GAMING_MODE
-#define ANALOG_PRESS_STRETCH_IN_GAMING_MODE 0
+#define ANALOG_PRESS_STRETCH_IN_GAMING_MODE 1
 #undef ANALOG_PRESS_STRETCH_KEY2_KEYCODE
 #define ANALOG_PRESS_STRETCH_KEY2_KEYCODE KC_NO
 #undef ANALOG_PRESS_STRETCH_KEY3_KEYCODE
