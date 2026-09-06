@@ -216,7 +216,36 @@ void usb_endpoint_in_tx(USBDriver *usbp, usbep_t ep) {
 }
 #endif
 
+#if defined(USB_POLL_PHASE_PROBE)
+/* Phase of the host IN poll relative to the last USB SOF, sampled at the moment
+ * the keyboard report is actually collected by the host. usb_main.c timestamps
+ * every SOF into usb_sof_timing_last_cycles; here we timestamp the IN-complete
+ * and subtract. ANALOG_SCAN_SOF_SYNC aligns the scan to the SOF (the *start* of
+ * the frame); this instead reveals where the poll truly lands, so
+ * ANALOG_SCAN_SOF_START_OFFSET_US can be aimed at the real poll rather than the
+ * SOF. Read last/min/max/count with a debugger, or dump them from the main
+ * thread. LAB-only: enabled via -DUSB_POLL_PHASE_PROBE in alex_lab/rules.mk. */
+extern volatile uint32_t usb_sof_timing_last_cycles;
+volatile uint32_t        usb_poll_phase_last_us = 0;
+volatile uint32_t        usb_poll_phase_min_us  = 0xFFFFFFFFU;
+volatile uint32_t        usb_poll_phase_max_us  = 0;
+volatile uint32_t        usb_poll_phase_count   = 0;
+#endif
+
 void usb_endpoint_in_tx_complete_cb(USBDriver *usbp, usbep_t ep) {
+#if defined(USB_POLL_PHASE_PROBE)
+    /* ISR context: only cheap cycle-counter reads, one unsigned subtract (so it
+     * is wrap-safe across the 32-bit counter rollover) and a divide. No I/O. */
+    if (ep == KEYBOARD_IN_EPNUM) {
+        uint32_t now   = chSysGetRealtimeCounterX();
+        uint32_t delta = now - usb_sof_timing_last_cycles;
+        uint32_t us    = delta / (STM32_SYSCLK / 1000000U);
+        usb_poll_phase_last_us = us;
+        if (us < usb_poll_phase_min_us) usb_poll_phase_min_us = us;
+        if (us > usb_poll_phase_max_us) usb_poll_phase_max_us = us;
+        usb_poll_phase_count++;
+    }
+#endif
 #if defined(USB_REPORT_INTERVAL_ENABLE)
     if (ep == KEYBOARD_IN_EPNUM || ep == SHARED_IN_EPNUM) usbp->epc[ep]->in_state->report_interval_count = 0;
 #endif
@@ -285,6 +314,29 @@ void usb_endpoint_out_rx_complete_cb(USBDriver *usbp, usbep_t ep) {
 
     osalSysUnlockFromISR();
 }
+
+#ifdef USB_HID_DEFERRED_REPORTS
+bool usb_endpoint_in_try_send(usb_endpoint_in_t *endpoint, const uint8_t *data, size_t size) {
+    if (size == 0 || size > endpoint->config.buffer_size) return false;
+    osalSysLock();
+    output_buffers_queue_t *q = &endpoint->obqueue;
+    // Acquire and post one whole HID packet under the same lock. A failed
+    // attempt never resets the queue or writes part of a report. A buffered
+    // stream owns q->ptr and must be flushed by its own sender first.
+    if (usbGetDriverStateI(endpoint->config.usbp) != USB_ACTIVE || bqIsSuspendedX(q) || obqIsFullI(q) || q->ptr != NULL) {
+        osalSysUnlock();
+        return false;
+    }
+    if (obqGetEmptyBufferTimeoutS(q, TIME_IMMEDIATE) != MSG_OK) {
+        osalSysUnlock();
+        return false;
+    }
+    memcpy(q->ptr, data, size);
+    obqPostFullBufferS(q, size);
+    osalSysUnlock();
+    return true;
+}
+#endif
 
 bool usb_endpoint_in_send(usb_endpoint_in_t *endpoint, const uint8_t *data, size_t size, sysinterval_t timeout, bool buffered) {
     osalDbgCheck((endpoint != NULL) && (data != NULL) && (size > 0U) && (size <= endpoint->config.buffer_size));

@@ -16,9 +16,12 @@
 
 #pragma once
 
+#define VIA_FIRMWARE_VERSION 0x00000001
+
 #include "eeconfig_kb.h"
 
 /* External EEPROM Configuration*/
+#define EXTERNAL_EEPROM_BYTE_COUNT 8192
 #define I2C_DRIVER I2CD3
 #define I2C1_SCL_PIN A8
 #define I2C1_SDA_PIN C9
@@ -101,9 +104,22 @@
 // Disable QMK core debounce to prevent rapid trigger delay
 #define DEBOUNCE 0
 
+// Startup contract: keep HID alive but suppress analog transitions until the
+// Hall/ADC path has had a short, validated warm-up. This avoids transient
+// presses/releases during Windows USB enumeration and sensor settling.
+#define ANALOG_STARTUP_GUARD_ENABLE 1
+#define ANALOG_STARTUP_WARMUP_MS 150
+#define ANALOG_STARTUP_VALID_SCANS 8
+#define ANALOG_CALIBRATION_SAVE_DELAY_MS 250
+#define ANALOG_CALIBRATION_SAVE_IDLE_MS 1000
+#define ANALOG_CALIBRATION_SAVE_RETRY_MS 5000
+
 // K2 HE gaming build: keep calibration dead zone minimal; top-out filtering is
 // handled dynamically in convert_to_travel().
 #define ZERO_TRAVEL_DEAD_ZONE 2
+#ifndef BOTTOM_DEAD_ZONE
+#    define BOTTOM_DEAD_ZONE 41
+#endif
 #define TOP_OUT_DEAD_ZONE_GAMING 12
 #define TOP_OUT_DEAD_ZONE_TYPING 20
 // Histeresis de Gaming UNIFORME: 0.5 mm de tope, capado a actuacion/2 por
@@ -117,6 +133,10 @@
 // predictivo los hereda como sus slots 1 y 2 (bits 0 y 1 de las mascaras F7).
 #define ANALOG_CONTINUOUS_RT_KEY1_KEYCODE KC_SPACE
 #define ANALOG_CONTINUOUS_RT_KEY2_KEYCODE KC_LEFT_SHIFT
+#define ANALOG_CONTINUOUS_RT_KEY3_KEYCODE KC_W
+#define ANALOG_CONTINUOUS_RT_KEY4_KEYCODE KC_A
+#define ANALOG_CONTINUOUS_RT_KEY5_KEYCODE KC_S
+#define ANALOG_CONTINUOUS_RT_KEY6_KEYCODE KC_D
 #define STATIC_HYSTERESIS_TYPING 5
 #define ANALOG_RAW_NOISE_FILTER_GAMING 5
 #define ANALOG_RAW_NOISE_FILTER_TYPING 5
@@ -154,7 +174,7 @@
 // del server antes de usar en ranked/torneos).
 #define ANALOG_DISABLE_SOCD_IN_GAMING_MODE 0
 #define ANALOG_DISABLE_PROFILE_COMBO_IN_GAMING_MODE 1
-#define ANALOG_CONTINUOUS_RAPID_TRIGGER_IN_GAMING_MODE 0
+#define ANALOG_CONTINUOUS_RAPID_TRIGGER_IN_GAMING_MODE 1
 #define ANALOG_CONTINUOUS_RT_REPRESS_MAX_TRAVEL 240
 // Toggles de prediccion controlados por keymap (alex = off, alex_lab = on).
 // No se fuerzan aqui: analog_matrix.h los deja en 0 por defecto y el config.h
@@ -199,20 +219,32 @@
 // ninguno, asi que pasa el criterio #3, y cambia si el juego ve el input, asi
 // que pasa el #4.
 //
-// ANTES DE PROMOCIONARLO: el drill D1 mide, en el binario de TORNEO y con el
-// histograma, que fraccion de presses de LSHIFT al bridgear dura menos de un
-// tick. Si es ~0, esto se queda apagado para siempre y costo 20 minutos en vez
-// de un ciclo de lab. Coste conocido si se enciende: en 1.8.9 el sneak cancela
-// el sprint, asi que 55 ms de shift forzado obligan a re-doble-tap de W.
+// ANTES DE PROMOCIONARLO: el drill D1 mide, en el binario de TORNEO, que
+// fraccion de presses de LSHIFT al bridgear dura menos de un tick. Si es ~0,
+// esto se queda apagado para siempre y costo 20 minutos en vez de un ciclo de
+// lab. Coste conocido si se enciende: en 1.8.9 el sneak cancela el sprint, asi
+// que 55 ms de shift forzado obligan a re-doble-tap de W.
 #define ANALOG_PRESS_STRETCH_KEY2_KEYCODE KC_LEFT_SHIFT
 
-// El histograma de ventanas ON/OFF es instrumentacion de lab. Su default es 0
-// en window_histogram.h y alex_lab/config.h lo habilita explicitamente; el
-// binario estable no compila su estado ni su hook de barrido.
+// (10-ago) Tercer slot de F9: F8, ON-stretch para S (s-tap). Inerte mientras
+// ANALOG_PRESS_STRETCH_IN_GAMING_MODE este apagado (SIEMPRE en torneo; alex_lab
+// lo enciende) y mientras no exista en Launcher el par SOCD W/S en last-input.
+//
+// Racional (espejo del que dejo a Shift dentro): con par SOCD W/S, el OFF de W
+// que ve el juego no es un release fisico sino el ENMASCARADO del SOCD — F6 no
+// puede clampearlo. Sostener el ON reportado de S >=55 ms tras un press fisico
+// garantiza que el muestreo de 50 ms alcance a ver la ventana en que S gana y W
+// esta enmascarado. Condiciones reales (ver la nota F8 en common/analog_matrix/
+// analog_matrix.h): el par debe existir y ser last-input — con deeper-travel el
+// SOCD vuelve al travel fisico y corta la
+// ventana; y solo costea si se s-tapea (la 3a mecanica de reset de sprint).
+#define ANALOG_PRESS_STRETCH_KEY3_KEYCODE KC_S
+
+// (11-ago) El histograma de ventanas y la telemetria se retiraron de la rama
+// (proyecto de "seguir un roadmap" a rama creativa). F8 sobrevive: es el
+// tercer slot de F9, no depende del histograma.
 
 // Tap-hold configurations to make spacebar/other keys feel responsive if mapped as layer-taps or mod-taps
 #define TAPPING_TERM 175
 #define QUICK_TAP_TERM 120
 #define PERMISSIVE_HOLD
-
-

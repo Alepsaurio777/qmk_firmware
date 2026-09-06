@@ -21,6 +21,8 @@
 #include "nvm_eeprom_eeconfig_internal.h"
 #include "analog_matrix.h"
 
+#if ANALOG_GAME_CONTROLLER_SUPPORT
+
 uint8_t      game_controller_mode;
 point_t      curve[CURVE_POINTS_COUNT];
 float        slope[CURVE_POINTS_COUNT - 1];
@@ -114,3 +116,5 @@ void game_controller_clear(void) {
     }
 #endif
 }
+
+#endif // ANALOG_GAME_CONTROLLER_SUPPORT

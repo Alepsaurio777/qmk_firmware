@@ -181,6 +181,10 @@ void protocol_post_init(void) {
 
 void protocol_pre_task(void) {
     usb_event_queue_task();
+#ifdef USB_HID_DEFERRED_REPORTS
+    extern void usb_deferred_task(void);
+    usb_deferred_task();
+#endif
 
 #if !defined(NO_USB_STARTUP_CHECK)
     if (USB_DRIVER.state == USB_SUSPENDED) {
@@ -220,6 +224,10 @@ void protocol_pre_task(void) {
 }
 
 void protocol_post_task(void) {
+#ifdef USB_HID_DEFERRED_REPORTS
+    extern void usb_deferred_task(void);
+    usb_deferred_task();
+#endif
 #ifdef VIRTSER_ENABLE
     virtser_task();
 #endif

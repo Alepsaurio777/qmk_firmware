@@ -66,12 +66,19 @@ set -u
 # querer": es codigo que dejo de hacer falta. El coste esta en RAM (+288 B de
 # bss por la de-union), que este script no mide.
 #
-# 28-jul-2026: alex 54296 (era 54288; +8 por el arreglo B1, el
-# id_dynamic_keymap_reset que faltaba en la lista de re-resolucion — correccion,
-# no feature). alex_lab 56680.
-BASE_ALEX=53200
-BASE_LAB=58484
-BASE_CAL_LAB=57436
+# 4-sep-2026 (latencia y robustez de torneo): alex 53200 -> 54380 (+1180 B).
+# Optimizaciones del hot path validadas sin fuga de laboratorio:
+# startup guard (150ms/8 scans), refcount de modificadores, cache de modo analogo,
+# SOCD compacto con early-exit, saneador de perfiles en RAM, buffer ping-pong ADC
+# (sin memcpy), inline NOPs de HC164 (32 nops), settle 14 us, ADC 15 ciclos y top
+# dead zone 4. Invariante por simbolos 100% limpio.
+#
+# 4-sep-2026 (retiro definitivo de telemetria): lab 58484 -> 54276 (-4208 B),
+# cal_lab 57436 -> 53876 (-3560 B). Telemetria retirada permanentemente;
+# los binarios compilan sin la capa de telemetria ni hooks de logging.
+BASE_ALEX=54380
+BASE_LAB=54276
+BASE_CAL_LAB=53876
 
 BUILD_DIR="${BUILD_DIR:-.build}"
 FAIL=0

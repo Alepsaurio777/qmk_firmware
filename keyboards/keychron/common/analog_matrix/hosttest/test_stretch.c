@@ -30,8 +30,12 @@
 // F9 primero, F6 despues. Al reves, F6 veria el release fisico y abriria su
 // ventana OFF peleando contra el ON que F9 sostiene.
 static bool chain(uint8_t row, uint8_t col, bool physical) {
+#if ANALOG_STRETCH_BITMAP_FAST_REJECT && (ANALOG_PRESS_STRETCH_IN_GAMING_MODE || ANALOG_RELEASE_STRETCH_IN_GAMING_MODE)
+    return analog_matrix_stretch_apply(row, col, physical);
+#else
     bool p = analog_matrix_press_stretch_apply(row, col, physical);
     return analog_matrix_release_stretch_apply(row, col, p);
+#endif
 }
 
 // Mantiene el estado fisico durante `ms` barridos (1 kHz => 1 barrido = 1 ms) y
@@ -62,41 +66,55 @@ static void setup_keymap(void) {
 // remapear W desde Launcher dejaba la politica en el hueco viejo en silencio.
 #if ANALOG_POLICY_NEEDED
 static void test_policy_follows_remap(void) {
-    uint8_t dump[ANALOG_POLICY_DUMP_LEN];
+    const uint8_t remap_row = 3;
+    const uint8_t remap_col = 9;
 
+    // Re-resolver debe retirar la politica de la posicion vieja, no solo
+    // añadirla a la nueva. Se comprueba por el comportamiento observable de
+    // los filtros, que es la API vigente; el dump de policy ya no existe.
     setup_keymap();
-    analog_matrix_policy_dump(dump);
-
-#    if ANALOG_RELEASE_STRETCH_IN_GAMING_MODE
-    // out[25] = slot 0 de F6 (KC_W), empaquetado (row << 4) | col
-    CHECK(dump[25] == ((ROW_W << 4) | COL_W), "F6 slot0 resuelto a 0x%02X, esperaba 0x%02X", dump[25], (ROW_W << 4) | COL_W);
-    // out[26] = slot 1 de F6 (KC_SPACE)
-    CHECK(dump[26] == ((ROW_SPC << 4) | COL_SPC), "F6 slot1 resuelto a 0x%02X, esperaba 0x%02X", dump[26], (ROW_SPC << 4) | COL_SPC);
-#    endif
-#    if ANALOG_PRESS_STRETCH_IN_GAMING_MODE
-    // out[27] = slot 0 de F9 (KC_SPACE)
-    CHECK(dump[27] == ((ROW_SPC << 4) | COL_SPC), "F9 slot0 resuelto a 0x%02X, esperaba 0x%02X", dump[27], (ROW_SPC << 4) | COL_SPC);
-    // out[28] = slot 1 de F9 (KC_LEFT_SHIFT)
-    CHECK(dump[28] == ((ROW_LSFT << 4) | COL_LSFT), "F9 slot1 resuelto a 0x%02X, esperaba 0x%02X", dump[28], (ROW_LSFT << 4) | COL_LSFT);
-#    endif
-
-    // Remapeo: W se va a otra posicion. Re-resolver debe llevarse la politica.
     hosttest_keymap_set(ROW_W, COL_W, KC_NO);
-    hosttest_keymap_set(3, 9, KC_W);
+    hosttest_keymap_set(remap_row, remap_col, KC_W);
     analog_matrix_resolve_policy_keys();
-    analog_matrix_policy_dump(dump);
 
+    // La posicion vieja queda en passthrough.
+    CHECK(!chain(ROW_W, COL_W, false), "posicion vieja de W: baseline OFF");
+    CHECK(chain(ROW_W, COL_W, true), "posicion vieja de W: press passthrough");
+    hosttest_clock_advance(1);
+    CHECK(!chain(ROW_W, COL_W, false), "posicion vieja de W: release passthrough");
+    hosttest_clock_advance(1);
+    CHECK(chain(ROW_W, COL_W, true), "posicion vieja de W no debe conservar F6");
+
+    // La nueva posicion recibe la politica de W.
+    CHECK(!chain(remap_row, remap_col, false), "posicion nueva de W: baseline OFF");
+    CHECK(chain(remap_row, remap_col, true), "posicion nueva de W: press");
+    hosttest_clock_advance(1);
+    CHECK(!chain(remap_row, remap_col, false), "posicion nueva de W: release");
+    hosttest_clock_advance(1);
 #    if ANALOG_RELEASE_STRETCH_IN_GAMING_MODE
-    CHECK(dump[25] == ((3 << 4) | 9), "tras remapear, F6 slot0 = 0x%02X, esperaba 0x%02X", dump[25], (3 << 4) | 9);
+    CHECK(!chain(remap_row, remap_col, true), "posicion nueva de W debe conservar F6 activo");
+#    else
+    CHECK(chain(remap_row, remap_col, true), "sin F6 la posicion nueva de W es passthrough");
 #    endif
 
-    // Keycode ausente del keymap: el slot queda SIN resolver (0xFF), no
-    // apuntando a basura.
-    hosttest_keymap_set(3, 9, KC_NO);
+    // Repetir el mismo contrato con Space, que puede llevar F9 y F6 a la vez.
+    setup_keymap();
+    hosttest_keymap_set(ROW_SPC, COL_SPC, KC_NO);
+    hosttest_keymap_set(remap_row, remap_col, KC_SPACE);
     analog_matrix_resolve_policy_keys();
-    analog_matrix_policy_dump(dump);
-#    if ANALOG_RELEASE_STRETCH_IN_GAMING_MODE
-    CHECK(dump[25] == 0xFF, "keycode ausente deberia dejar el slot en 0xFF, hay 0x%02X", dump[25]);
+
+    CHECK(!chain(ROW_SPC, COL_SPC, false), "posicion vieja de Space: baseline OFF");
+    CHECK(chain(ROW_SPC, COL_SPC, true), "posicion vieja de Space: press passthrough");
+    hosttest_clock_advance(1);
+    CHECK(!chain(ROW_SPC, COL_SPC, false), "posicion vieja de Space: release passthrough");
+
+    CHECK(!chain(remap_row, remap_col, false), "posicion nueva de Space: baseline OFF");
+    CHECK(chain(remap_row, remap_col, true), "posicion nueva de Space: press");
+    hosttest_clock_advance(1);
+#    if ANALOG_PRESS_STRETCH_IN_GAMING_MODE
+    CHECK(chain(remap_row, remap_col, false), "posicion nueva de Space debe conservar F9 activo");
+#    else
+    CHECK(!chain(remap_row, remap_col, false), "sin F9 la posicion nueva de Space es passthrough");
 #    endif
 }
 #endif

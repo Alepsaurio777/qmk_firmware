@@ -31,6 +31,15 @@
 
 #define FULL_TRAVEL_UNIT 40
 
+/* Build-time switch for the legacy analog game-controller/curve path.
+ * Keep enabled by default for Keychron compatibility; alex_lab disables it
+ * completely so AKM_GAMEPAD and Curve/Game Controller Raw HID commands are
+ * unsupported and the scan path does not touch game_controller_matrix.
+ * EEPROM offsets/enums stay reserved to preserve layout/protocol numbering. */
+#ifndef ANALOG_GAME_CONTROLLER_SUPPORT
+#    define ANALOG_GAME_CONTROLLER_SUPPORT 1
+#endif
+
 #ifndef DEFAULT_ACTUATION_POINT
 #    define DEFAULT_ACTUATION_POINT 20
 #endif
@@ -117,6 +126,22 @@
 #    define ANALOG_CONTINUOUS_RT_KEY2_KEYCODE KC_NO
 #endif
 
+#ifndef ANALOG_CONTINUOUS_RT_KEY3_KEYCODE
+#    define ANALOG_CONTINUOUS_RT_KEY3_KEYCODE KC_NO
+#endif
+
+#ifndef ANALOG_CONTINUOUS_RT_KEY4_KEYCODE
+#    define ANALOG_CONTINUOUS_RT_KEY4_KEYCODE KC_NO
+#endif
+
+#ifndef ANALOG_CONTINUOUS_RT_KEY5_KEYCODE
+#    define ANALOG_CONTINUOUS_RT_KEY5_KEYCODE KC_NO
+#endif
+
+#ifndef ANALOG_CONTINUOUS_RT_KEY6_KEYCODE
+#    define ANALOG_CONTINUOUS_RT_KEY6_KEYCODE KC_NO
+#endif
+
 #ifndef MIN_ACTUATION
 #    define MIN_ACTUATION 5
 #endif
@@ -141,15 +166,45 @@
 #    define ANALOG_RAW_NOISE_FILTER_TYPING 5
 #endif
 
+// LAB/opt-in: estimate a per-key raw ADC noise floor from the samples already
+// collected by the power-on zero-travel calibration, then freeze it for the
+// session. No background learning and no EEPROM writes are introduced.
+// The implementation is integer-only and feeds the existing raw-delta gate.
+#ifndef ANALOG_STARTUP_NOISE_FLOOR_ENABLE
+#    define ANALOG_STARTUP_NOISE_FLOOR_ENABLE 0
+#endif
+#ifndef ANALOG_STARTUP_NOISE_FILTER_MIN
+#    define ANALOG_STARTUP_NOISE_FILTER_MIN 3
+#endif
+#ifndef ANALOG_STARTUP_NOISE_FILTER_MAX
+#    define ANALOG_STARTUP_NOISE_FILTER_MAX 12
+#endif
+#ifndef ANALOG_STARTUP_NOISE_FILTER_MARGIN
+#    define ANALOG_STARTUP_NOISE_FILTER_MARGIN 1
+#endif
+#ifndef ANALOG_STARTUP_NOISE_MAX_VALID_SPAN
+#    define ANALOG_STARTUP_NOISE_MAX_VALID_SPAN 24
+#endif
+#ifndef ANALOG_STARTUP_RELEASE_WINDOW_RAW
+#    define ANALOG_STARTUP_RELEASE_WINDOW_RAW 60
+#endif
+STATIC_ASSERT(ANALOG_STARTUP_NOISE_FILTER_MIN <= ANALOG_STARTUP_NOISE_FILTER_MAX, "startup noise filter min must be <= max");
+
 #ifndef ANALOG_GAMING_LAYERS_MASK
 #    define ANALOG_GAMING_LAYERS_MASK ((layer_state_t)0x03)
 #endif
 
+extern uint8_t profile_get_current_index(void);
+
 static inline bool analog_matrix_is_gaming_mode(void) {
-    // SOLO la capa default (= interruptor fisico). Incluir layer_state aqui
-    // reabria un escape del lockdown: con Fn sostenido durante el cambio de
-    // interruptor, el bit de la capa Fn mantenia esto en falso ya en Gaming.
+#if defined(HOSTTEST) || defined(HOST_TEST)
+    // En hosttest cuelga de default_layer_state para los test shims
     return (default_layer_state & ~ANALOG_GAMING_LAYERS_MASK) == 0;
+#else
+    // En runtime real, Gaming Mode es exactamente Perfil 1 (Gaming).
+    // Perfil 0 (Default) y Perfil 2 (Gamepad) son modos normales de tipeo/productividad.
+    return profile_get_current_index() == 1;
+#endif
 }
 
 #ifndef BOTTOM_DEAD_ZONE
@@ -166,6 +221,43 @@ static inline bool analog_matrix_is_gaming_mode(void) {
 #    define ANALOG_DEBOUNCE_TIME 3
 #endif
 
+/* Keep the first reports quiet while the Hall front-end and its calibration
+ * settle after keyboard_post_init.  The guard is opt-in here so other analog
+ * keyboards can choose their own startup contract; the K2 HE enables it in
+ * its shared config.  USB remains alive during the guard, but physical key
+ * transitions are not emitted until the sensor has produced enough valid
+ * scans. */
+#ifndef ANALOG_STARTUP_GUARD_ENABLE
+#    define ANALOG_STARTUP_GUARD_ENABLE 0
+#endif
+#ifndef ANALOG_STARTUP_WARMUP_MS
+#    define ANALOG_STARTUP_WARMUP_MS 150
+#endif
+#ifndef ANALOG_STARTUP_VALID_SCANS
+#    define ANALOG_STARTUP_VALID_SCANS 8
+#endif
+STATIC_ASSERT(ANALOG_STARTUP_VALID_SCANS > 0, "ANALOG_STARTUP_VALID_SCANS must be positive");
+
+/* EEPROM writes are deliberately deferred to housekeeping.  The request delay
+ * coalesces several calibration updates, while the idle delay keeps I2C out of
+ * active typing/gameplay. */
+#ifndef ANALOG_CALIBRATION_SAVE_DELAY_MS
+#    define ANALOG_CALIBRATION_SAVE_DELAY_MS 250
+#endif
+#ifndef ANALOG_CALIBRATION_SAVE_IDLE_MS
+#    define ANALOG_CALIBRATION_SAVE_IDLE_MS 1000
+#endif
+#ifndef ANALOG_CALIBRATION_SAVE_RETRY_MS
+#    define ANALOG_CALIBRATION_SAVE_RETRY_MS 5000
+#endif
+
+/* A key held during power-on must not permanently abort the zero-travel
+ * sample. Retry a few complete sample windows, then fall back to the last
+ * known-good/default calibration instead of waiting forever. */
+#ifndef ANALOG_POWER_ON_CALIBRATION_RETRY_COUNT
+#    define ANALOG_POWER_ON_CALIBRATION_RETRY_COUNT 3
+#endif
+
 #ifndef ANALOG_FIXED_POINT_TRAVEL
 #    define ANALOG_FIXED_POINT_TRAVEL 0
 #endif
@@ -176,7 +268,7 @@ static inline bool analog_matrix_is_gaming_mode(void) {
 
 /* Learn per-key bottom-out from real usage, outside the scan hot path.
  * The learned full-travel only ever deepens (never shrinks), so the dynamic
- * range cannot degrade on its own. Runs in analog_matrix_task(). */
+ * range cannot degrade on its own. Runs in housekeeping. */
 #ifndef ANALOG_BOTTOM_OUT_LEARN
 #    define ANALOG_BOTTOM_OUT_LEARN 0
 #endif
@@ -184,34 +276,6 @@ static inline bool analog_matrix_is_gaming_mode(void) {
 /* Minimum improvement (raw ADC counts) before committing a learned bottom-out. */
 #ifndef ANALOG_BOTTOM_OUT_LEARN_EPSILON
 #    define ANALOG_BOTTOM_OUT_LEARN_EPSILON 30
-#endif
-
-/* Laboratorio: aprendizaje de bottom-out por confianza y con rollback.
- *
- * A diferencia de ANALOG_BOTTOM_OUT_LEARN, este camino no modifica EEPROM ni
- * aplica nada automaticamente. Reune una muestra por pulsacion completa,
- * calcula una mediana robusta y deja el resultado como candidato. El cliente
- * de diagnostico puede aplicarlo solamente en RAM o restaurar la calibracion
- * capturada al terminar la calibracion de arranque. Un reset tambien revierte.
- */
-#ifndef ANALOG_CONFIDENT_BOTTOM_OUT_ENABLE
-#    define ANALOG_CONFIDENT_BOTTOM_OUT_ENABLE 0
-#endif
-
-#ifndef ANALOG_CONFIDENT_BOTTOM_OUT_SAMPLES
-#    define ANALOG_CONFIDENT_BOTTOM_OUT_SAMPLES 7
-#endif
-
-#ifndef ANALOG_CONFIDENT_BOTTOM_OUT_DEEP_TRAVEL
-#    define ANALOG_CONFIDENT_BOTTOM_OUT_DEEP_TRAVEL 220
-#endif
-
-#ifndef ANALOG_CONFIDENT_BOTTOM_OUT_RELEASE_TRAVEL
-#    define ANALOG_CONFIDENT_BOTTOM_OUT_RELEASE_TRAVEL 30
-#endif
-
-#ifndef ANALOG_CONFIDENT_BOTTOM_OUT_MAX_SPREAD
-#    define ANALOG_CONFIDENT_BOTTOM_OUT_MAX_SPREAD 40
 #endif
 
 /* Depth-compare SOCD (Rappy Snappy): a challenger key must be deeper than the
@@ -403,9 +467,17 @@ static inline bool analog_matrix_is_gaming_mode(void) {
 //
 // Un slot, no dos: la unica tecla cuya MECANICA es el ON es el espacio. W no lo
 // necesita (su mecanica la dispara que se vea el OFF, que es F6) y extender el
-// ON de W seria movimiento no pedido — mortal en un borde de sumo.
+// ON de W seria movimiento no pedido — mortal en un borde de sumo. Lo que cabe
+// aqui NO es cualquier tecla: son los casos donde el press no visto rompe una
+// mecanica (espacio = el salto no existio) o el par SOCD esconde la ventana
+// (S del s-tap con par W/S last-input, ver KEY3 abajo). Por eso hoy son tres
+// slots: espacio, LShift (experimento) y S (F8).
 #ifndef ANALOG_PRESS_STRETCH_IN_GAMING_MODE
 #    define ANALOG_PRESS_STRETCH_IN_GAMING_MODE 0
+#endif
+
+#ifndef ANALOG_STRETCH_BITMAP_FAST_REJECT
+#    define ANALOG_STRETCH_BITMAP_FAST_REJECT 0
 #endif
 
 #ifndef ANALOG_PRESS_STRETCH_MS
@@ -426,14 +498,29 @@ static inline bool analog_matrix_is_gaming_mode(void) {
 //
 // Su coste es real y medible: en 1.8.9 el sneak cancela el sprint, asi que 55 ms
 // de shift forzado obligan a re-doble-tap de W. Por eso es un experimento de
-// alex_lab con el histograma delante, NO una suposicion de torneo. El drill que
-// decide si merece la pena construirlo siquiera es medir, en el binario de
-// TORNEO, que fraccion de presses de LSHIFT al bridgear duran menos de un tick.
+// alex_lab, NO una suposicion de torneo. El drill que decide si merece la pena
+// construirlo siquiera es medir, en el binario de TORNEO, que fraccion de
+// presses de LSHIFT al bridgear duran menos de un tick.
 #ifndef ANALOG_PRESS_STRETCH_KEY2_KEYCODE
 #    define ANALOG_PRESS_STRETCH_KEY2_KEYCODE KC_NO
 #endif
 
-#define PRESS_STRETCH_SLOTS 2
+// (10-ago) Tercer slot de F9: F8, ON-stretch para S (s-tap). Misma mecanica que
+// el espacio — sostener el ON reportado tras un press fisico — pero con una
+// razon DISTINTA: con el par SOCD W/S que configura Alex en Launcher (last-input),
+// el OFF de W que ve el juego lo genera el enmascarado del SOCD, no un release
+// fisico, asi que F6 no lo puede clampear. Al sostener el ON de S >=55 ms, el
+// SOCD last-input mantiene a S como ganador hasta que el estado reportado cae,
+// y el muestreo de 50 ms del cliente alcanza a ver la ventana. NO funciona con
+// el par en deeper-travel: ahi el SOCD compara el travel fisico y el ganador
+// vuelve a W a mitad del stretch. (F8, tercera mecanica de reset de sprint; la
+// lista completa de condiciones esta en k2_he/config.h.)
+// Inerte en torneo con el flag de prensa apagado; keycode en k2_he/config.h.
+#ifndef ANALOG_PRESS_STRETCH_KEY3_KEYCODE
+#    define ANALOG_PRESS_STRETCH_KEY3_KEYCODE KC_NO
+#endif
+
+#define PRESS_STRETCH_SLOTS 3
 
 // La razon de existir de las dos ventanas es SUPERAR el tick del cliente. Un
 // valor <= 50 no las hace mas rapidas: las deja pagando la latencia entera y
@@ -459,27 +546,6 @@ STATIC_ASSERT(ANALOG_PRESS_STRETCH_MS > ANALOG_TICK_REFERENCE_MS, "ANALOG_PRESS_
 
 #if ANALOG_POLICY_NEEDED
 void analog_matrix_resolve_policy_keys(void);
-
-// ----- Volcado de diagnostico de la politica resuelta -----------------------
-// Hace observable lo que antes solo se podia razonar: a que posiciones fisicas
-// aterrizaron las whitelists declaradas por keycode. Sin esto, verificar un
-// remap exige una sesion de evlog; con esto es una consulta.
-//
-// Layout de los ANALOG_POLICY_DUMP_LEN bytes que rellena:
-//   [0]      flags: bit0 predictivo, bit1 release-stretch (F6),
-//            bit2 press-stretch (F9), bit3 continuous RT
-//   [1..12]  analog_predictive_press_mask,   6 filas x uint16 LE
-//   [13..24] analog_predictive_repress_mask, 6 filas x uint16 LE
-//   [25]     slot 0 de F6, empaquetado (row << 4) | col — 0xFF sin resolver
-//   [26]     slot 1 de F6, idem
-//   [27]     slot 0 de F9, idem
-//   [28]     slot 1 de F9, idem
-// Continuous RT reporta solo su bit de flags: esta apagado y su mascara no
-// justifica 12 bytes hasta que se use.
-#define ANALOG_POLICY_DUMP_LEN 29
-void analog_matrix_policy_dump(uint8_t *out);
-
-STATIC_ASSERT(MATRIX_ROWS <= 15 && MATRIX_COLS <= 16, "El empaquetado (row << 4) | col del volcado necesita row <= 15 y col <= 15");
 
 static inline bool analog_policy_bit(const matrix_row_t *mask, uint8_t row, uint8_t col) {
     if (row >= MATRIX_ROWS || col >= MATRIX_COLS) return false;
@@ -530,10 +596,12 @@ STATIC_ASSERT(ANALOG_CONTINUOUS_RT_REPRESS_MAX_TRAVEL <= ((FULL_TRAVEL_UNIT + 1)
 
 void analog_matrix_init(void);
 void analog_matrix_eeconfig_init(void);
-bool update_raw_value(uint8_t row, uint8_t col, uint16_t value);
+void analog_matrix_startup_begin(void);
+bool analog_matrix_startup_quiet(void);
+void update_raw_value(uint8_t row, uint8_t col, uint16_t value);
 void update_travel_configs(void);
 void update_key_config(uint8_t row, uint8_t col);
-void analog_matrix_eeprom_update(const void *buf, void *addr, size_t len);
+bool analog_matrix_eeprom_update(const void *buf, void *addr, size_t len);
 
 void analog_matrix_set_mins(uint16_t *min);
 void analog_matrix_set_maxs(uint16_t *max);
@@ -559,20 +627,20 @@ bool analog_matrix_press_stretch_apply(uint8_t row, uint8_t col, bool pressed);
 #    define analog_matrix_press_stretch_apply(row, col, pressed) (pressed)
 #endif
 
-// Flanco FISICO de una tecla con stretch, antes de que el filtro lo altere.
-// Weak y vacia por defecto: la telemetria del keymap la override para poder
-// medir el estado fisico y el reportado en la MISMA sesion (el evlog cuelga de
-// process_record_user, o sea aguas abajo de los dos stretches, y por si solo no
-// puede ver lo que el clamp se come).
-//
-// Lleva el keycode CON EL QUE SE DECLARO el slot, no solo la coordenada: el
-// consumidor necesita identificar la tecla y resolverla desde el keymap aqui
-// significaria leer la EEPROM dentro del barrido. La firma coincide a proposito
-// con la del registrador del evlog.
-void analog_matrix_physical_edge_hook(uint16_t keycode, bool pressed, uint8_t row, uint8_t col);
+#if ANALOG_STRETCH_BITMAP_FAST_REJECT && (ANALOG_PRESS_STRETCH_IN_GAMING_MODE || ANALOG_RELEASE_STRETCH_IN_GAMING_MODE)
+bool analog_matrix_stretch_apply(uint8_t row, uint8_t col, bool physical);
+#else
+// Preserve exact F9 -> F6 ordering when the bitmap fast-reject is disabled.
+#    define analog_matrix_stretch_apply(row, col, physical) analog_matrix_release_stretch_apply((row), (col), analog_matrix_press_stretch_apply((row), (col), (physical)))
+#endif
+
 bool         analog_matrix_calibrating(void);
 matrix_row_t analog_matrix_get_row(uint8_t row);
 void         analog_matrix_rx(uint8_t *data, uint8_t length);
+void         analog_matrix_scan_task(void);
+void         analog_matrix_housekeeping_task(void);
+/* Compatibility entry point. It is intentionally scan-safe; deferred work is
+ * serviced by analog_matrix_housekeeping_task() from the main-loop hook. */
 void         analog_matrix_task(void);
 void         analog_matrix_indicator(void);
 void         analog_matrix_clear(void);

@@ -16,6 +16,10 @@
 
 #pragma once
 
+#ifndef VIA_FIRMWARE_VERSION
+#    define VIA_FIRMWARE_VERSION 0x00000001
+#endif
+
 #ifdef RGB_MATRIX_ENABLE
 /* LED Current Configuration */
 #    define SNLED27351_CURRENT_TUNE \

@@ -19,6 +19,14 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+#ifndef ANALOG_RUNTIME_CONFIG_CACHE
+#    define ANALOG_RUNTIME_CONFIG_CACHE 0
+#endif
+
+#ifndef ANALOG_GAME_CONTROLLER_SUPPORT
+#    define ANALOG_GAME_CONTROLLER_SUPPORT 1
+#endif
+
 // Analog key mode
 enum {
     AKM_GLOBAL = 0,
@@ -49,7 +57,10 @@ typedef struct __attribute__((__packed__)){
 } activity_point_t;
 
 typedef struct __attribute__((__packed__)){
-    uint8_t  mode;                  // 1 byte
+    uint8_t  mode;                  // configured runtime mode
+#if ANALOG_RUNTIME_CONFIG_CACHE
+    uint8_t  effective_mode;        // pre-resolved Gaming fallback (RAM-only)
+#endif
     uint8_t  state;                 // 1 byte
     uint8_t  travel;                // 1 byte
     uint8_t last_travel;            // for debug
@@ -83,11 +94,13 @@ typedef struct __attribute__((__packed__)){
     // Coste: 3 bytes x 96 entradas = 288 B de RAM en un STM32F401 con 96 KB.
     uint8_t rpd_trig_sen;           // rapid trig sensitivity
     uint8_t okmc_idx;
-    uint8_t js_axis;                // joystick x/y axis
+#if ANALOG_GAME_CONTROLLER_SUPPORT
+    uint8_t js_axis;                // joystick x/y axis (not present in LAB)
+#endif
     uint8_t hold;
     uint8_t rpd_trig_sen_rls;
 } analog_key_t;
-// size of analog_key_t is 20 bytes (17 + 3 al des-unionar; todo RAM)
+// Host sizeof: 21 bytes in stable and LAB; LAB removes js_axis (-1) and adds effective_mode (+1), so RAM stays flat.
 
 typedef struct __attribute__((__packed__)) {
     uint8_t actn_pt;                        // unit: 0.1mm
@@ -140,6 +153,8 @@ typedef struct __attribute__((__packed__)) {
     uint8_t type;
 } socd_config_t;
 // size  = 3 bytes
+STATIC_ASSERT(MATRIX_ROWS <= 7, "socd_config_t.key_row is 3 bits — max 7 rows");
+STATIC_ASSERT(MATRIX_COLS <= 31, "socd_config_t.key_col is 5 bits — max 31 cols");
 
 typedef struct __attribute__((__packed__)) {
     uint8_t x;                              // 1

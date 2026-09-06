@@ -34,6 +34,7 @@
 #include "usb_descriptor.h"
 #include "raw_hid.h"
 #ifdef ANANLOG_MATRIX
+#    include "analog_matrix.h"
 #    include "profile.h"
 #endif
 
@@ -109,6 +110,12 @@ void keychron_common_init(void) {
 #endif
 #if defined(LK_WIRELESS_ENABLE) || defined(KC_BLUETOOTH_ENABLE)
     wireless_common_init();
+#endif
+#ifdef ANANLOG_MATRIX
+    /* Start the analog warm-up only after bootmagic and the rest of keyboard
+     * initialization have completed. This keeps boot-time key chords working
+     * while protecting the first normal USB reports. */
+    analog_matrix_startup_begin();
 #endif
 }
 

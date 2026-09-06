@@ -124,8 +124,8 @@ static uint8_t okmc_field_actions(const okmc_config_t *okmc, uint8_t field, uint
     }
 }
 
-// Runs once per scan from analog_matrix_task(): executes at most one
-// bit-group (one HID report) and returns.
+// Runs once per main-loop turn from analog_matrix_housekeeping_task(): executes
+// at most one bit-group (one HID report) and returns.
 void okmc_deferred_task(void) {
     if (okmc_q_count == 0) return;
 

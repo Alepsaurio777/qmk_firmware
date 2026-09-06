@@ -166,7 +166,7 @@ def keyboard_folder_or_all(keyboard):
 def _find_name(path):
     """Determine the keyboard name by stripping off the base_path and filename.
     """
-    return path.replace(base_path, "").rsplit(os.path.sep, 1)[0]
+    return path.replace(base_path, "").rsplit(os.path.sep, 1)[0].replace(os.path.sep, "/")
 
 
 def keyboard_completer(prefix, action, parser, parsed_args):

@@ -26,7 +26,9 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 extern keymap_config_t keymap_config;
 
 static uint8_t real_mods = 0;
+#ifdef INPUT_OWNERSHIP_REFCOUNT_ENABLE
 static uint8_t mod_refcounts[8] = {0};
+#endif
 static uint8_t weak_mods = 0;
 #ifdef KEY_OVERRIDE_ENABLE
 static uint8_t weak_override_mods = 0;
@@ -329,7 +331,18 @@ void send_nkro_report(void) {
  *
  * FIXME: needs doc
  */
+#ifdef KEYBOARD_REPORT_BATCHING
 void send_keyboard_report(void) {
+    // Explicit/synthetic reports are ordering barriers. Only the plain-key
+    // paths in action.c may defer a report within a physical matrix batch.
+    keyboard_report_batch_end();
+    keyboard_report_batch_emit();
+}
+
+void keyboard_report_batch_emit(void) {
+#else
+void send_keyboard_report(void) {
+#endif
 #ifdef NKRO_ENABLE
 #    ifdef APDAPTIVE_NKRO_ENABLE
     if (kb_report_changed & KB_RPT_STD) send_6kro_report();
@@ -360,69 +373,75 @@ uint8_t get_mods(void) {
  * FIXME: needs doc
  */
 void add_mods(uint8_t mods) {
+#ifdef KEYBOARD_REPORT_BATCHING
+    if (mods) keyboard_report_batch_end();
+#endif
+#ifdef INPUT_OWNERSHIP_REFCOUNT_ENABLE
     for (uint8_t i = 0; i < 8; i++) {
         if (mods & (1 << i)) {
             if (mod_refcounts[i] != UINT8_MAX) mod_refcounts[i]++;
             if (mod_refcounts[i] == 1) {
                 real_mods |= (1 << i);
-#if defined(NKRO_ENABLE) && defined(APDAPTIVE_NKRO_ENABLE)
+#    if defined(NKRO_ENABLE) && defined(APDAPTIVE_NKRO_ENABLE)
                 kb_report_changed |= KB_RPT_STD;
-#endif
+#    endif
             }
         }
     }
+#else
+#    if defined(NKRO_ENABLE) && defined(APDAPTIVE_NKRO_ENABLE)
+    if ((real_mods | mods) != real_mods) kb_report_changed |= KB_RPT_STD;
+#    endif
+    real_mods |= mods;
+#endif
 }
 /** \brief del mods
  *
  * FIXME: needs doc
  */
 void del_mods(uint8_t mods) {
+#ifdef KEYBOARD_REPORT_BATCHING
+    if (mods) keyboard_report_batch_end();
+#endif
+#ifdef INPUT_OWNERSHIP_REFCOUNT_ENABLE
     for (uint8_t i = 0; i < 8; i++) {
         if (mods & (1 << i)) {
             if (mod_refcounts[i] > 0) {
                 mod_refcounts[i]--;
                 if (mod_refcounts[i] == 0) {
                     real_mods &= ~(1 << i);
-#if defined(NKRO_ENABLE) && defined(APDAPTIVE_NKRO_ENABLE)
+#    if defined(NKRO_ENABLE) && defined(APDAPTIVE_NKRO_ENABLE)
                     kb_report_changed |= KB_RPT_STD;
-#endif
+#    endif
                 }
             }
         }
     }
+#else
+#    if defined(NKRO_ENABLE) && defined(APDAPTIVE_NKRO_ENABLE)
+    if ((real_mods & ~mods) != real_mods) kb_report_changed |= KB_RPT_STD;
+#    endif
+    real_mods &= ~mods;
+#endif
 }
 /** \brief set mods
  *
- * LIMITACION CONOCIDA del refcount de modificadores (commit 42cd346), (1-ago):
- *
- * set_mods() escribe la cuenta en ABSOLUTO (1 o 0), descartando a los co-duenos.
- * Si un modificador lo sostienen dos fuentes (tecla fisica + mod-tap, p.ej.) y
- * algo llama aqui, la cuenta baja a 1 y el siguiente del_mods() lo suelta del
- * cable con la otra fuente todavia activa — que es exactamente el bug que este
- * refcount vino a arreglar en add/del.
- *
- * NO se arregla porque en ESTE build esta inalcanzable, verificado: los unicos
- * llamantes son quantum/split_common/transactions.c, quantum/unicode/unicode.c y
- * keyboards/keychron/common/wireless/{transport,wireless}.c, y ninguno de los
- * tres se compila aqui (sin split, sin unicode, wireless.mk comentado en el
- * rules.mk del K2 HE).
- *
- * Se despierta en dos escenarios, y en cualquiera de los dos hay que arreglarlo
- * ANTES de dar por bueno el refcount:
- *   1. Si vuelve wireless (wireless.c llama set_mods(0x02)).
- *   2. Si este parche se upstrea o se comparte con otro teclado.
- *
- * El arreglo es hacerlo aditivo sobre las cuentas existentes en vez de absoluto;
- * no se hace hoy para no cambiar semantica que nadie ejercita ni puede probar.
+ * FIXME: needs doc
  */
 void set_mods(uint8_t mods) {
+#ifdef KEYBOARD_REPORT_BATCHING
+    if (real_mods != mods) keyboard_report_batch_end();
+#endif
+#ifdef INPUT_OWNERSHIP_REFCOUNT_ENABLE
+    /* set_mods() is an absolute QMK API: it has no source identity, so it cannot
+     * reconstruct multiple owners. Reset counts to the state it explicitly
+     * requests. alex/alex_lab do not compile the split/unicode/wireless callers
+     * that use this API; keeping the feature opt-in prevents this limitation
+     * from leaking into unrelated QMK builds. */
     for (uint8_t i = 0; i < 8; i++) {
-        if (mods & (1 << i)) {
-            mod_refcounts[i] = 1;
-        } else {
-            mod_refcounts[i] = 0;
-        }
+        mod_refcounts[i] = (mods & (1 << i)) ? 1 : 0;
     }
+#endif
 #if defined(NKRO_ENABLE) && defined(APDAPTIVE_NKRO_ENABLE)
     if (real_mods != mods) kb_report_changed |= KB_RPT_STD;
 #endif
@@ -433,7 +452,12 @@ void set_mods(uint8_t mods) {
  * FIXME: needs doc
  */
 void clear_mods(void) {
+#ifdef KEYBOARD_REPORT_BATCHING
+    if (real_mods) keyboard_report_batch_end();
+#endif
+#ifdef INPUT_OWNERSHIP_REFCOUNT_ENABLE
     memset(mod_refcounts, 0, sizeof(mod_refcounts));
+#endif
 #if defined(NKRO_ENABLE) && defined(APDAPTIVE_NKRO_ENABLE)
     if (real_mods) kb_report_changed |= KB_RPT_STD;
 #endif
@@ -452,6 +476,9 @@ uint8_t get_weak_mods(void) {
  * FIXME: needs doc
  */
 void add_weak_mods(uint8_t mods) {
+#ifdef KEYBOARD_REPORT_BATCHING
+    if ((weak_mods | mods) != weak_mods) keyboard_report_batch_end();
+#endif
 #if defined(NKRO_ENABLE) && defined(APDAPTIVE_NKRO_ENABLE)
     if ((weak_mods & mods) != mods) kb_report_changed |= KB_RPT_STD;
 #endif
@@ -462,6 +489,9 @@ void add_weak_mods(uint8_t mods) {
  * FIXME: needs doc
  */
 void del_weak_mods(uint8_t mods) {
+#ifdef KEYBOARD_REPORT_BATCHING
+    if (weak_mods & mods) keyboard_report_batch_end();
+#endif
 #if defined(NKRO_ENABLE) && defined(APDAPTIVE_NKRO_ENABLE)
     if (weak_mods & mods) kb_report_changed |= KB_RPT_STD;
 #endif
@@ -472,6 +502,9 @@ void del_weak_mods(uint8_t mods) {
  * FIXME: needs doc
  */
 void set_weak_mods(uint8_t mods) {
+#ifdef KEYBOARD_REPORT_BATCHING
+    if (weak_mods != mods) keyboard_report_batch_end();
+#endif
 #if defined(NKRO_ENABLE) && defined(APDAPTIVE_NKRO_ENABLE)
     if (weak_mods != mods) kb_report_changed |= KB_RPT_STD;
 #endif
@@ -482,6 +515,9 @@ void set_weak_mods(uint8_t mods) {
  * FIXME: needs doc
  */
 void clear_weak_mods(void) {
+#ifdef KEYBOARD_REPORT_BATCHING
+    if (weak_mods) keyboard_report_batch_end();
+#endif
 #if defined(NKRO_ENABLE) && defined(APDAPTIVE_NKRO_ENABLE)
     if (weak_mods) kb_report_changed |= KB_RPT_STD;
 #endif

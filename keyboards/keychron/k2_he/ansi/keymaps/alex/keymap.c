@@ -16,14 +16,10 @@
 
 #include QMK_KEYBOARD_H
 #include "analog_matrix.h"
-#include "window_histogram.h"
 #include "keychron_common.h"
 #include "profile.h"
 #ifdef VIA_ENABLE
 #    include "via.h"
-#endif
-#ifdef ALEX_TELEMETRY_ENABLE
-#    include "telemetry.h"
 #endif
 
 enum layers {
@@ -109,14 +105,6 @@ static inline bool is_profile_select_keycode(uint16_t keycode) {
     return keycode >= PROF1 && keycode <= PROF3;
 }
 
-static bool    pending_profile_rebuild = false;
-static uint8_t pending_profile_index   = 0;
-
-static inline void schedule_profile_rebuild(uint8_t profile_index) {
-    pending_profile_index   = profile_index;
-    pending_profile_rebuild = true;
-}
-
 // ---------------------------------------------------------------------------
 // Raw HID: unico override de kc_raw_hid_rx_user del keymap
 // ---------------------------------------------------------------------------
@@ -130,19 +118,12 @@ static inline void schedule_profile_rebuild(uint8_t profile_index) {
 // Launcher deja la politica en la posicion vieja hasta el siguiente boot,
 // cambio de perfil o giro del interruptor.
 //
-// El override vive aqui y no en telemetry.c para que politica e histograma no
-// dependan accidentalmente de ese modulo. Si los tres consumidores estan off,
-// el bloque completo desaparece del binario estable.
-// Un solo flag para "el keymap cambio", con tres consumidores de lab: politica
-// experimental, telemetria e histograma. Todo el mecanismo se compila fuera de
-// alex porque alli los tres estan apagados.
-#if defined(ALEX_TELEMETRY_ENABLE) || ANALOG_POLICY_NEEDED || ANALOG_WINDOW_HISTOGRAM
-#    define ALEX_DYNAMIC_KEYMAP_RESOLVE_NEEDED 1
-#else
-#    define ALEX_DYNAMIC_KEYMAP_RESOLVE_NEEDED 0
-#endif
-
-#if ALEX_DYNAMIC_KEYMAP_RESOLVE_NEEDED
+// El override vive aqui y no con la telemetria (que se quito) para no acoplar la
+// re-resolucion a un flag de diagnostico: apagar un sistema no debe apagar esto.
+// Un solo flag para "el keymap cambio", con un consumidor: las whitelists del
+// analog matrix (resolucion por keycode). No se guarda tras ANALOG_POLICY_NEEDED
+// porque la resolucion debe poder seguir al remap en cualquiera de los dos
+// builds.
 static bool pending_keymap_resolve = false;
 
 void kc_raw_hid_rx_user(uint8_t src, uint8_t *data, uint8_t length) {
@@ -155,96 +136,46 @@ void kc_raw_hid_rx_user(uint8_t src, uint8_t *data, uint8_t length) {
     //
     // id_dynamic_keymap_reset (0x06) tiene que estar aqui: dynamic_keymap_reset()
     // reescribe el keymap entero sin reiniciar el teclado, asi que tras un
-    // "Reset Keymap" en Launcher las teclas vigiladas y las whitelists quedarian
-    // ancladas a las posiciones previas hasta boot, cambio de perfil o giro del
-    // interruptor. Es el mismo fallo que la resolucion por keycode vino a matar.
+    // "Reset Keymap" en Launcher las whitelists quedarian ancladas a las
+    // posiciones previas hasta boot, cambio de perfil o giro del interruptor.
+    // Es el mismo fallo que la resolucion por keycode vino a matar.
     if (length >= 1 && (data[0] == id_dynamic_keymap_set_keycode || data[0] == id_dynamic_keymap_set_buffer || data[0] == id_dynamic_keymap_reset)) {
         pending_keymap_resolve = true;
     }
 #endif
 
-#ifdef ALEX_TELEMETRY_ENABLE
-    telemetry_raw_hid_rx(src, data, length);
-#else
     (void)src;
     (void)data;
     (void)length;
-#endif
 }
-#endif
+
+bool dip_switch_update_user(uint8_t index, bool active) {
+    (void)index;
+    (void)active;
+    return true;
+}
 
 layer_state_t default_layer_state_set_user(layer_state_t state) {
-    if (state & (1UL << WIN_BASE)) {
-        // Defer profile rebuild until default_layer_state has been committed.
-        schedule_profile_rebuild(0);
-    } else if (state & (1UL << GAMING_BASE)) {
-        schedule_profile_rebuild(1);
-    }
     return state;
 }
 
-void keyboard_post_init_user(void) {
-#ifdef ALEX_TELEMETRY_ENABLE
-    // Primera resolucion de las teclas vigiladas. Corre despues de via_init()
-    // (que valida o resetea el keymap dinamico), asi que el keymap ya es fiable.
-    // La politica del analog matrix no necesita esto: ya se resuelve en su
-    // update_travel_configs() de matrix_init_custom, tambien post via_init.
-    telemetry_resolve_keys();
-#endif
-}
+void keyboard_post_init_user(void) {} // (post via_init) el remap se resuelve por demanda
 
 void housekeeping_task_user(void) {
-#ifdef ALEX_TELEMETRY_ENABLE
-    telemetry_task();
-    evlog_task();
-#endif
-
     // Remap desde Launcher: recolocar todo lo que se declara por keycode.
-#if ALEX_DYNAMIC_KEYMAP_RESOLVE_NEEDED
     if (pending_keymap_resolve) {
         pending_keymap_resolve = false;
-#ifdef ALEX_TELEMETRY_ENABLE
-        telemetry_resolve_keys();
-#endif
-        // El rebuild de perfil de abajo ya llama a la resolucion de politica e
-        // histograma, asi que no la repetimos en el mismo tick de housekeeping.
-        //
-        // Este skip depende de que el camino de abajo SIEMPRE resuelva. Lo hace:
-        // profile_select() solo devuelve false con prof_idx >= PROFILE_COUNT
-        // (imposible aqui, el indice es 0 o 1 literal), y tanto la rama de
-        // cambio de perfil como el update_travel_configs() explicito acaban
-        // llamando a ambas resoluciones. Si eso cambia, este skip se vuelve una
-        // fuga silenciosa de la re-resolucion.
-        if (!pending_profile_rebuild) {
-            analog_matrix_resolve_policy_keys();
-            analog_window_hist_resolve_keys();
-        }
-    }
-#endif
-
-    if (!pending_profile_rebuild) return;
-
-    pending_profile_rebuild = false;
-
-    const uint8_t profile_index = pending_profile_index;
-    const bool    same_profile  = profile_get_current_index() == profile_index;
-
-    if (profile_select(profile_index, false, false) && same_profile) {
-        // profile_select() rebuilds configs only when the profile index changes.
-        // Force a rebuild here so Win/Gaming hysteresis and advanced-mode
-        // fallbacks are computed after the default layer transition settles.
-        update_travel_configs();
+        analog_matrix_resolve_policy_keys();
     }
 }
 
-bool process_record_user(uint16_t keycode, keyrecord_t *record) {
-#ifdef ALEX_TELEMETRY_ENABLE
-    // Diagnostico (temporal): registrar el evento ANTES de cualquier lockdown,
-    // para cazar tambien fantasmas de teclas de movimiento en Gaming. No-op si
-    // el logger esta off. Se arranca por comando HID, no por keycode.
-    evlog_record_event(keycode, record->event.pressed, record->event.key.row, record->event.key.col);
+#ifdef KEYBOARD_REPORT_BATCHING
+bool keyboard_report_batch_enabled(void) {
+    return analog_matrix_is_gaming_mode();
+}
 #endif
 
+bool process_record_user(uint16_t keycode, keyrecord_t *record) {
     // Si estamos en modo Gaming (Interruptor fisico en Mac = Capas 0 y 1)
     if (analog_matrix_is_gaming_mode()) {
         if (record->event.pressed) {
@@ -255,11 +186,6 @@ bool process_record_user(uint16_t keycode, keyrecord_t *record) {
 
             // Bloquear cualquier cambio de capa en Gaming, aunque se remapee desde Launcher.
             if (is_layer_switch_keycode(keycode)) {
-                return false;
-            }
-
-            // Bloquear cambios de perfil HE en Gaming.
-            if (is_profile_select_keycode(keycode)) {
                 return false;
             }
 

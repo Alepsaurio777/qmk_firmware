@@ -100,6 +100,9 @@ qmk compile -kb keychron/k2_he/ansi -km alex_cal_lab
 |---|---|---|---|
 | `ANALOG_SCAN_PIPELINE` | 1 | 1 | Procesa columna previa durante el settle (barrido más corto) |
 | `ANALOG_SCAN_SOF_SYNC` | 1 | 1 | Ancla el barrido al SOF USB (elimina jitter de fase) |
+| `ANALOG_RUNTIME_CONFIG_CACHE` | **1** | **1** | Resuelve una vez por reconfiguración el modo efectivo y los knobs del camino caliente |
+| `ANALOG_SOCD_RUNTIME_COMPACT` | **1** | **1** | Recorre sólo pares SOCD activos en cada barrido |
+| `ANALOG_PROFILE_SANITIZER_ENABLE` | **1** | **1** | Canonicaliza perfiles EEPROM antes de usarlos, sin cambiar layout ni escribir durante boot |
 | report rate USB | 1 kHz | 1 kHz | Fijo por descriptor (`bInterval=1`); no existe flag runtime |
 | `ANALOG_BOTTOM_OUT_LEARN` | **0** | **1** | Aprende bottom-out por tecla, solo-crece (torneo lo apaga: drift descartado con datos, config inmutable) |
 | `ANALOG_SOCD_DEEPER_HYSTERESIS` | 6 | 6 | Histéresis del Rappy Snappy (anti-chatter A/D) |
@@ -219,6 +222,45 @@ explícitamente en Minemen/Hypixel, baneado en CS2/ESL.
 - **QMK mainline va 3 ciclos de breaking changes por delante** del árbol
   (`20250831` aquí vs `20260531` en master). Eso lo arrastra Keychron, no
   nosotros, pero fija el coste de cualquier rebase futuro.
+
+## Estabilización de arranque (31-ago-2026)
+
+La primera fase para el síntoma de teclas que se traban al iniciar Windows ya
+está integrada en el camino común del K2 HE:
+
+- Después de bootmagic, el firmware mantiene la matriz analógica silenciosa
+  durante **150 ms** y exige **8 barridos ADC válidos** consecutivos. USB sigue
+  activo, pero no se publican transiciones físicas ni virtuales durante esa
+  ventana; una tecla mantenida se evalúa de nuevo al terminarla.
+- La calibración de reposo de power-on puede reintentar **3 ventanas completas**
+  si una tecla está mantenida o el ADC entrega un valor anómalo. Si no converge,
+  conserva la calibración anterior/default y no deja el escaneo bloqueado.
+- El learner de bottom-out, el guardado de calibración y los despachos de HID
+  virtual pasan a `housekeeping`; las escrituras de EEPROM sólo ocurren tras
+  250 ms de coalescencia y 1 s sin actividad. Un fallo de I2C reintenta con
+  backoff de 5 s, no en cada vuelta del escaneo.
+
+Lo que **no** se promociona en esta fase: predicción RT, stretches F6/F9, un
+filtro de ruido adaptativo permanente y una reingeniería de la inicialización
+I2C. Esas piezas siguen siendo experimentales o requieren una medición de
+hardware; el binario recomendado para empezar es `alex`.
+
+### Prueba de aceptación en hardware
+
+1. Flashear `alex`, desconectar y conectar el teclado en frío **20 veces**, sin
+   tocar teclas durante el primer segundo.
+2. En cada arranque, probar `W`, `A`, `S`, `D`, espacio y Shift justo después de
+   que Windows enumere el dispositivo; anotar cualquier tecla fantasma,
+   release perdido o primera pulsación ignorada.
+3. Repetir 10 ciclos de suspensión/despertar de Windows y separar esos resultados
+   de los de arranque en frío.
+4. Aceptar sólo si no hay eventos fantasma/pegados y la primera pulsación
+   deliberada funciona; si falla, repetir con `alex_lab` activando temporalmente
+   la telemetría/probes para distinguir sensor, I2C y fase USB.
+
+No se flashea ningún binario automáticamente desde este flujo: la validación
+final depende del teclado físico y de la versión de Windows que presenta el
+síntoma.
 
 ## Tests de host
 

@@ -47,9 +47,9 @@ typedef struct {
 // Definido por teclado (k2_he/ansi/profiles.c). Weak por defecto = lista vacia.
 extern const profile_key_tuning_t *profile_key_tuning(uint8_t prof_idx);
 
-// Par SOCD sembrado en la tabla de reset. Sin esto, tras un reset el Rappy
-// Snappy queda APAGADO aunque ANALOG_DISABLE_SOCD_IN_GAMING_MODE sugiera lo
-// contrario: default_profiles[] nunca sembro ninguno.
+// Mecanismo OPCIONAL para teclados que quieran sembrar pares SOCD al reset.
+// Weak por defecto = NULL. El K2 HE alex/alex_lab no lo sobreescribe: SOCD se
+// configura de forma explicita desde Keychron Launcher.
 typedef struct {
     uint16_t keycode_1;
     uint16_t keycode_2;

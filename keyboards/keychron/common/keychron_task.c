@@ -130,6 +130,13 @@ void keychron_task(void) {
 
     keychron_common_task();
 
+#ifdef ANANLOG_MATRIX
+    /* Calibration learning, EEPROM persistence and virtual-controller flushes
+     * are main-loop work. Keeping them here removes their I2C/HID latency from
+     * matrix_scan_custom(); SOCD itself remains in the scan task. */
+    analog_matrix_housekeeping_task();
+#endif
+
     keychron_task_kb();
 }
 

@@ -8,6 +8,7 @@ SRC += \
      $(ANALOG_MATRX_DIR)/eeprom_he.c \
      $(ANALOG_MATRX_DIR)/analog_matrix_scan.c \
      $(ANALOG_MATRX_DIR)/profile.c \
+     $(ANALOG_MATRX_DIR)/profile_sanitize.c \
      $(ANALOG_MATRX_DIR)/usb_descriptor_override.c \
      $(ANALOG_MATRX_DIR)/action_regular_trigger.c \
      $(ANALOG_MATRX_DIR)/action_rapid_trigger.c \
@@ -17,8 +18,6 @@ SRC += \
      $(ANALOG_MATRX_DIR)/action_xinput.c \
      $(ANALOG_MATRX_DIR)/action_socd.c \
      $(ANALOG_MATRX_DIR)/action_stretch.c \
-     $(ANALOG_MATRX_DIR)/bottom_out_confidence.c \
-     $(ANALOG_MATRX_DIR)/window_histogram.c \
      $(ANALOG_MATRX_DIR)/sqrt.c \
      $(ANALOG_MATRX_DIR)/game_controller_common.c \
      $(ANALOG_MATRX_DIR)/analog_matrix.c

@@ -121,3 +121,9 @@ compile_commands.json
 via*.json
 /keyboards/**/keymaps/via/*
 /keyboards/**/keymaps/vial/*
+
+# Local test & audit logs
+compile_out_*.txt
+qmk_test.txt
+sync_*.sh
+

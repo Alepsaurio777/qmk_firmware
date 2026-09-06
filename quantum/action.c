@@ -79,6 +79,13 @@ __attribute__((weak)) bool get_retro_tapping(uint16_t keycode, keyrecord_t *reco
  * FIXME: Needs documentation.
  */
 void action_exec(keyevent_t event) {
+#ifdef KEYBOARD_REPORT_BATCHING
+    if (keyboard_report_batch_active() && (!IS_KEYEVENT(event) || !IS_BASIC_KEYCODE(get_event_keycode(event, false)))) {
+        // Flush before preprocessing can change modifiers, layers or synthesize
+        // input. Mod-tap, macros, consumers and modifier edges keep their order.
+        keyboard_report_batch_end();
+    }
+#endif
     if (IS_EVENT(event)) {
         ac_dprintf("\n---- action_exec: start -----\n");
         ac_dprintf("EVENT: ");
@@ -284,6 +291,13 @@ void process_record(keyrecord_t *record) {
     if (IS_NOEVENT(record->event)) {
         return;
     }
+#ifdef KEYBOARD_REPORT_BATCHING
+    // A new plain key can resolve an older tapping action. Inspect that record
+    // too, before its hooks execute; the incoming event alone is insufficient.
+    if (keyboard_report_batch_active() && !IS_BASIC_KEYCODE(get_record_keycode(record, false))) {
+        keyboard_report_batch_end();
+    }
+#endif
 #ifdef FLOW_TAP_TERM
     flow_tap_update_last_event(record);
 #endif // FLOW_TAP_TERM
@@ -956,21 +970,38 @@ __attribute__((weak)) void register_code(uint8_t code) {
         // TODO: should push command_proc out of this block?
         if (command_proc(code)) return;
 
+#ifdef KEYBOARD_REPORT_BATCHING
+        keyboard_report_batch_before_key(code);
+        if (is_key_pressed(code)) keyboard_report_batch_end();
+#endif
+
         // Force a new key press if the key is already pressed
         // without this, keys with the same keycode, but different
         // modifiers will be reported incorrectly, see issue #1708
+#ifdef INPUT_OWNERSHIP_REFCOUNT_ENABLE
         const bool retrigger = is_key_pressed(code);
         if (retrigger) {
-            // Emit the deliberate release without decrementing the ownership
-            // count of the source that already holds this key. add_key() below
-            // then registers the new source, and restore puts the key back on
-            // the wire even though the refcount is now greater than one.
+            // Emit the deliberate release without decrementing ownership of
+            // the source that already holds this key. The new source is then
+            // counted by add_key(), and restore puts the key back on the wire.
             suppress_key_from_report(code);
             send_keyboard_report();
         }
         add_key(code);
         if (retrigger) restore_key_to_report(code);
+#ifdef KEYBOARD_REPORT_BATCHING
+        keyboard_report_batch_send();
+#else
         send_keyboard_report();
+#endif
+#else
+        if (is_key_pressed(code)) {
+            del_key(code);
+            send_keyboard_report();
+        }
+        add_key(code);
+        send_keyboard_report();
+#endif
     } else if (IS_MODIFIER_KEYCODE(code)) {
         add_mods(MOD_BIT(code));
         send_keyboard_report();
@@ -1026,8 +1057,15 @@ __attribute__((weak)) void unregister_code(uint8_t code) {
 #endif
 
     } else if (IS_BASIC_KEYCODE(code)) {
+#ifdef KEYBOARD_REPORT_BATCHING
+        keyboard_report_batch_before_key(code);
+#endif
         del_key(code);
+#ifdef KEYBOARD_REPORT_BATCHING
+        keyboard_report_batch_send();
+#else
         send_keyboard_report();
+#endif
     } else if (IS_MODIFIER_KEYCODE(code)) {
         del_mods(MOD_BIT(code));
         send_keyboard_report();

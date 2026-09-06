@@ -42,7 +42,10 @@
 // (y con el, OFFSET_PROFILES_START) sin subir version; el guard de
 // analog_matrix_eeconfig_init() usa esta para detectar EEPROM de layout viejo
 // y resetear perfiles a default en vez de cargarlos desalineados.
-#define KC_ANALOG_MATRIX_EEPROM_VERSION 0x34340005
+// 0x34340006 (04-sep-2026): reset limpio de perfiles para deshacerse de ajustes
+// residuales de Rapid/Continuous RT dejados por firmware experimentales.
+// 0x34340007 (06-sep-2026): Perfil 1 (Gaming) activo por defecto y persistente.
+#define KC_ANALOG_MATRIX_EEPROM_VERSION 0x34340007
 #define SIZE_OF_CALIB_VALUE_T 3       // Size of calibrated_value_t
 #define SIZE_OF_ANALOG_KEY_CONFIG_T 4 // Size of analog_key_config_t
 #define SIZE_OF_OKMC_CONFIG_T 19      // Size of okmc_config_t

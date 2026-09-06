@@ -35,6 +35,8 @@ static void test_config_anchor(void) {
 
     CHECK(s.key.rpd_trig_sen == 18, "sen escalado = %u, esperaba 18", s.key.rpd_trig_sen);
     CHECK(s.key.rpd_trig_sen_rls == 12, "sen_rls escalado = %u, esperaba 12", s.key.rpd_trig_sen_rls);
+    CHECK(ANALOG_CONTINUOUS_RT_REPRESS_MAX_TRAVEL == 240,
+          "cap estable de re-press = %u, esperaba 240", ANALOG_CONTINUOUS_RT_REPRESS_MAX_TRAVEL);
 
     // Actuacion superficial: la histeresis adaptativa la capa a act_pt/2.
     // act_pt 4 (0.4 mm) -> hyst = min(5, 2) = 2 -> deactn = (4-2)*6 = 12.

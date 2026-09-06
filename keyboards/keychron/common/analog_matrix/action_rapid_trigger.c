@@ -27,7 +27,8 @@ static int32_t rt_bottom_guard(const analog_key_t *k) {
 
 static inline bool rt_continuous_enabled(const analog_key_t *key) {
 #if ANALOG_CONTINUOUS_RAPID_TRIGGER_IN_GAMING_MODE
-    return analog_matrix_is_gaming_mode() && analog_policy_bit(analog_continuous_rt_mask, key->r, key->c);
+    (void)key;
+    return analog_matrix_is_gaming_mode();
 #else
     (void)key;
     return false;
@@ -114,7 +115,8 @@ static inline bool rt_dynamic_release_ready(const analog_key_t *key, bool contin
 
     // For whitelisted Continuous RT keys, do not require the extra bottom guard:
     // Launcher's RT release sensitivity becomes the release threshold. This is
-    // intentionally more responsive for Space/Shift spam experiments.
+    // intentionally more responsive for the MC189 PvP whitelist while keeping
+    // Launcher's configured RT distances as the source of truth.
     if (continuous_rt) return true;
 
     return (int32_t)key->travel < rt_bottom_guard(key);
@@ -178,8 +180,20 @@ bool rapid_trigger_action(analog_key_t *key) {
             break;
 
         case AKS_RAPID_PRESSED:
-            // Key releasing
-            if (key->travel > FULL_TRAVEL_UNIT * TRAVEL_SCALE) {
+            // Key releasing.
+            //
+            // Keychron's traditional guard stops updating the dynamic peak once
+            // travel goes beyond FULL_TRAVEL_UNIT*TRAVEL_SCALE (240 on K2 HE).
+            // That is fine for the guarded path, but it breaks Continuous RT:
+            // after a re-press near bottom-out the stored peak can remain at
+            // 240, so the next release is measured from an old reference and a
+            // configured 0.2 mm release turns into ~0.28 mm.
+            //
+            // Continuous RT deliberately removes that extra bottom restriction,
+            // therefore it must also keep tracking the real peak all the way to
+            // RT_MAX_TRAVEL. The legacy/non-continuous path is left byte-for-
+            // behavior equivalent.
+            if (!continuous_rt && key->travel > FULL_TRAVEL_UNIT * TRAVEL_SCALE) {
                 break;
             }
             if (rt_regular_release_ready(key, continuous_rt)) {

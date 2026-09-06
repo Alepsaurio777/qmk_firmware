@@ -20,6 +20,9 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include <stdint.h>
 #include "report.h"
 #include "modifiers.h"
+#ifdef KEYBOARD_REPORT_BATCHING
+#    include "report_batch.h"
+#endif
 
 #ifdef __cplusplus
 extern "C" {

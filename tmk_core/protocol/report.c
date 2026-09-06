@@ -182,8 +182,6 @@ bool del_key_bit(report_nkro_t* nkro_report, uint8_t code) {
 }
 #endif
 
-static uint8_t keycode_refcounts[256] = {0};
-
 static void add_key_to_active_report(uint8_t key) {
 #ifdef NKRO_ENABLE
 #    ifdef APDAPTIVE_NKRO_ENABLE
@@ -212,27 +210,18 @@ static void del_key_from_active_report(uint8_t key) {
     del_key_byte(keyboard_report, key);
 }
 
-/** \brief add key to report
- *
- * FIXME: Needs doc
- */
+#ifdef INPUT_OWNERSHIP_REFCOUNT_ENABLE
+static uint8_t keycode_refcounts[256] = {0};
+
 void add_key_to_report(uint8_t key) {
     if (keycode_refcounts[key] != UINT8_MAX) keycode_refcounts[key]++;
-    if (keycode_refcounts[key] == 1) {
-        add_key_to_active_report(key);
-    }
+    if (keycode_refcounts[key] == 1) add_key_to_active_report(key);
 }
 
-/** \brief del key from report
- *
- * FIXME: Needs doc
- */
 void del_key_from_report(uint8_t key) {
     if (keycode_refcounts[key] > 0) {
         keycode_refcounts[key]--;
-        if (keycode_refcounts[key] == 0) {
-            del_key_from_active_report(key);
-        }
+        if (keycode_refcounts[key] == 0) del_key_from_active_report(key);
     }
 }
 
@@ -243,13 +232,20 @@ void suppress_key_from_report(uint8_t key) {
 void restore_key_to_report(uint8_t key) {
     add_key_to_active_report(key);
 }
+#else
+void add_key_to_report(uint8_t key) {
+    add_key_to_active_report(key);
+}
 
-/** \brief clear key from report
- *
- * FIXME: Needs doc
- */
+void del_key_from_report(uint8_t key) {
+    del_key_from_active_report(key);
+}
+#endif
+
 void clear_keys_from_report(void) {
+#ifdef INPUT_OWNERSHIP_REFCOUNT_ENABLE
     memset(keycode_refcounts, 0, sizeof(keycode_refcounts));
+#endif
     // not clear mods
 #ifdef NKRO_ENABLE
 #    ifdef APDAPTIVE_NKRO_ENABLE

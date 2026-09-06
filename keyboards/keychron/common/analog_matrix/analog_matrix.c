@@ -16,22 +16,43 @@
 
 #include "quantum.h"
 #include "analog_matrix.h"
-#include "bottom_out_confidence.h"
+#include "noise_floor.h"
 #include "keymap_introspection.h"
 #include "raw_hid.h"
 #include "eeprom.h"
 #include "eeprom_he.h"
-
-#if ANALOG_AUTO_CALIBRATION_ENABLE || ANALOG_BOTTOM_OUT_LEARN
-static bool calibration_dirty = false;
-#endif
 #include "usb_main.h"
 #include <stdio.h>
 #include "profile.h"
 #include "sqrt.h"
-#include "game_controller_common.h"
-#include "window_histogram.h"
+#if ANALOG_GAME_CONTROLLER_SUPPORT
+#    include "game_controller_common.h"
+#endif
 #include "nvm_eeprom_eeconfig_internal.h"
+
+/* Calibration may be updated while scanning, but persistence must never be
+ * attempted from that path: the external EEPROM driver contains mandatory
+ * page-write delays.  Keep one coalesced request for the main-loop task. */
+static bool     calibration_save_pending;
+static bool     calibration_save_retry_wait;
+static uint32_t calibration_save_requested_at;
+static uint32_t calibration_save_generation;
+static uint32_t calibration_save_attempt_generation;
+static bool     calibration_save_active;
+
+static void request_calibration_save(void) {
+    calibration_save_pending = true;
+    calibration_save_generation++;
+
+    /* A new runtime value supersedes the next attempt, but must not defeat
+     * the retry backoff of a page that has already failed. */
+    if (!calibration_save_active) {
+        calibration_save_retry_wait   = false;
+        calibration_save_requested_at = timer_read32();
+    } else if (!calibration_save_retry_wait) {
+        calibration_save_requested_at = timer_read32();
+    }
+}
 
 #ifndef CAL_SAMPL_CNT
 #    define CAL_SAMPL_CNT 8
@@ -128,9 +149,10 @@ enum {
     AMC_SET_TRAVAL,
     AMC_SET_ADVANCE_MODE,
     AMC_SET_SOCD,
-    AMC_RESET_PROFILE = 0x1E,
-    AMC_SAVE_PROFILE  = 0x1F,
-    AMC_GET_CURVE     = 0x20,
+    AMC_RESET_SINGLE_KEY = 0x1D,
+    AMC_RESET_PROFILE    = 0x1E,
+    AMC_SAVE_PROFILE     = 0x1F,
+    AMC_GET_CURVE        = 0x20,
     AMC_SET_CURVE,
     AMC_GET_GAME_CONTROLLER_MODE,
     AMC_SET_GAME_CONTROLLER_MODE,
@@ -140,6 +162,22 @@ enum {
     AMC_CALIBRATE = 0x40,
     AMC_GET_CALIBRATE_STATE,
     AMC_GET_CALIBRATED_VALUE,
+
+    AMC_GET_AXIS_TYPE = 0x50,
+    AMC_SET_AXIS_TYPE = 0x51,
+
+    // Diagnostico LAB: lectura de la fase del poll USB medida por el probe de
+    // usb_driver.c. Solo entrega datos validos si el binario se compilo con
+    // -DUSB_POLL_PHASE_PROBE; si no, responde status=2 (no disponible). Es un
+    // GET, asi que la compuerta de Gaming lo deja pasar y se puede leer mientras
+    // se juega. ID 0x60: primer hueco libre tras el bloque de switch axis.
+    AMC_GET_POLL_PHASE = 0x60,
+
+    // Diagnostico LAB: duracion y fase de fin del scan (relativa al SOF), con
+    // min/max. Sirve para elegir ANALOG_SCAN_SOF_START_OFFSET_US: el scan deberia
+    // TERMINAR justo antes del poll del host. Solo con -DUSB_SOF_TIMING_PROBE;
+    // si no, status=2.
+    AMC_GET_SCAN_PHASE = 0x61,
 };
 
 // Se intento (19-jul) invertir esto a whitelist de solo-lectura en Gaming
@@ -151,15 +189,16 @@ enum {
 // dia vuelve el endurecimiento, la via es la "escotilla de tuning" del
 // ROADMAP (desbloqueo deliberado por 0xEE con timeout), no esta funcion.
 static inline bool analog_matrix_reject_raw_hid_in_gaming(uint8_t cmd) {
-    if (!analog_matrix_is_gaming_mode()) return false;
-
-    switch (cmd) {
-        case AMC_RESET_PROFILE:
-        case AMC_CALIBRATE:
-            return true;
-        default:
-            return false;
+    if (analog_matrix_is_gaming_mode()) {
+        switch (cmd) {
+            case AMC_CALIBRATE:
+            case AMC_RESET_PROFILE:
+                return true;
+            default:
+                break;
+        }
     }
+    return false;
 }
 
 extern const matrix_row_t analog_matrix_mask[];
@@ -170,20 +209,17 @@ extern bool regular_trigger_action(analog_key_t *key);
 extern bool okmc_action(analog_key_t *key);
 extern bool rapid_trigger_action(analog_key_t *key);
 extern bool toggle_action(analog_key_t *key);
+#if ANALOG_GAME_CONTROLLER_SUPPORT
 extern bool xinput_update(analog_key_t *key);
 extern bool joystick_update(analog_key_t *key);
+#endif
 extern void socd_action(void);
 
 static calibrated_value_t calib_values[MATRIX_ROWS][MATRIX_COLS];
 static calibrated_value_t saved_calib_values[MATRIX_ROWS][MATRIX_COLS];
+static calibrated_value_t calibration_save_snapshot[MATRIX_ROWS][MATRIX_COLS];
+static he_eeprom_cal_save_t calibration_save_transaction;
 analog_key_t       analog_key_matrix[MATRIX_ROWS][MATRIX_COLS];
-
-#if ANALOG_CONFIDENT_BOTTOM_OUT_ENABLE
-static bottom_out_confidence_t confident_bottom[MATRIX_ROWS][MATRIX_COLS];
-static uint16_t                confident_bottom_baseline[MATRIX_ROWS][MATRIX_COLS];
-static matrix_row_t            confident_bottom_applied[MATRIX_ROWS];
-static bool                    confident_bottom_initialized;
-#endif
 
 static uint16_t      calibrate_values[MATRIX_ROWS][MATRIX_COLS][CAL_SAMPL_CNT];
 #if ANALOG_AUTO_CALIBRATION_ENABLE
@@ -192,6 +228,7 @@ static calibration_t auto_calib[MATRIX_ROWS][MATRIX_COLS];
 static uint8_t       cali_state = CALIB_OFF;
 static uint8_t       last_cali_state;
 static uint8_t       cur_calib = 0;
+static uint8_t       power_on_calibration_retries;
 traval_config_t      regular;
 static float         scale_factor[MATRIX_ROWS][MATRIX_COLS];
 #if ANALOG_FIXED_POINT_TRAVEL
@@ -208,7 +245,57 @@ static uint32_t calib_ind_timer = 0;
 static uint8_t  last_calib_row  = 0xFF;
 static uint8_t  last_calib_col  = 0xFF;
 
+static void begin_power_on_calibration(void) {
+    power_on_calibration_retries = 0;
+    cur_calib                    = 0;
+    memset(calibrate_values, 0, sizeof(calibrate_values));
+    memset(manual_calib_zero_invalid, 0, sizeof(manual_calib_zero_invalid));
+    cali_state = CALIB_ZERO_TRAVEL_POWER_ON;
+}
+
 uint32_t debug_interval = 0;
+
+#ifndef ANALOG_RUNTIME_CONFIG_CACHE
+#    define ANALOG_RUNTIME_CONFIG_CACHE 0
+#endif
+
+#if ANALOG_RUNTIME_CONFIG_CACHE
+static bool    analog_runtime_gaming_mode;
+static uint8_t analog_runtime_raw_noise_filter;
+static uint8_t analog_runtime_top_out_deadzone;
+#endif
+
+#if ANALOG_STARTUP_NOISE_FLOOR_ENABLE
+// Threshold por tecla + bitmap de validez. Una tecla invalida/held durante el
+// boot ya no invalida las demas; simplemente usa el filtro estatico. Congelado
+// hasta reboot: no hay aprendizaje en background.
+static uint8_t      startup_noise_filter[MATRIX_ROWS][MATRIX_COLS];
+static matrix_row_t startup_noise_valid_mask[MATRIX_ROWS];
+
+static void analog_capture_startup_noise_floor(void) {
+    memset(startup_noise_valid_mask, 0, sizeof(startup_noise_valid_mask));
+
+    for (uint8_t r = 0; r < MATRIX_ROWS; r++) {
+        for (uint8_t c = 0; c < MATRIX_COLS; c++) {
+            const matrix_row_t bit = (matrix_row_t)1 << c;
+            if ((analog_matrix_mask[r] & bit) == 0) continue;
+
+            // saved_calib_values contiene la referencia de release previa a
+            // esta calibracion de power-on. zero_travel se almacena despues de
+            // restar ZERO_TRAVEL_DEAD_ZONE; las muestras ADC son raw, por eso
+            // se suma aqui para comparar en el mismo dominio.
+            const uint32_t expected32 = (uint32_t)saved_calib_values[r][c].zero_travel + ZERO_TRAVEL_DEAD_ZONE;
+            if (expected32 > UINT16_MAX) continue;
+
+            uint8_t learned = 0;
+            if (!analog_startup_noise_filter_if_released(calibrate_values[r][c], CAL_SAMPL_CNT, (uint16_t)expected32, ANALOG_STARTUP_RELEASE_WINDOW_RAW, &learned)) continue;
+
+            startup_noise_filter[r][c] = learned;
+            startup_noise_valid_mask[r] |= bit;
+        }
+    }
+}
+#endif
 
 uint8_t analog_matrix_get_travel(uint8_t row, uint8_t col) {
     return analog_key_matrix[row][col].travel;
@@ -235,49 +322,37 @@ uint8_t analog_matrix_get_travel_checked(uint8_t row, uint8_t col) {
     return analog_key_matrix[row][col].travel;
 }
 
-#if ANALOG_DISABLE_OKMC_IN_GAMING_MODE || ANALOG_DISABLE_TOGGLE_IN_GAMING_MODE || ANALOG_DISABLE_GAMEPAD_IN_GAMING_MODE
+#if !ANALOG_RUNTIME_CONFIG_CACHE
+#    if ANALOG_DISABLE_OKMC_IN_GAMING_MODE || ANALOG_DISABLE_TOGGLE_IN_GAMING_MODE || ANALOG_DISABLE_GAMEPAD_IN_GAMING_MODE
 static inline uint8_t analog_matrix_base_mode(uint8_t row, uint8_t col) {
     analog_matrix_profile_t *cur_prof = profile_get_current();
     analog_key_config_t *    key_cfg  = &cur_prof->key_config[row][col];
-
     return key_cfg->mode == AKM_GLOBAL ? cur_prof->global.mode : key_cfg->mode;
 }
 
-// (1-ago) Salida rapida antes de tocar nada mas. Los unicos modos que Gaming
-// degrada son los AVANZADOS, y en el perfil de torneo ninguna tecla los usa: o
-// sea que practicamente el 100% de las llamadas del barrido salian por el final
-// habiendo leido default_layer_state hasta TRES veces (una por rama). Preguntar
-// primero por el modo —un valor que ya esta en registro— lo deja en una
-// comparacion.
-//
-// Se eligio esto y NO cachear el modo efectivo en analog_key_t. La cache habria
-// sido algo mas rapida, pero crea una clase de bug nueva: quedarse rancia si
-// alguna ruta futura cambia el modo sin pasar por update_key_config(). Este
-// proyecto ya pago un bug de esa familia con la union de analog_key_t, y no
-// merece la pena cambiar riesgo por un par de por ciento de barrido.
 static inline uint8_t analog_matrix_effective_mode(uint8_t row, uint8_t col, uint8_t mode) {
     switch (mode) {
-#    if ANALOG_DISABLE_OKMC_IN_GAMING_MODE
+#        if ANALOG_DISABLE_OKMC_IN_GAMING_MODE
         case AKM_DKS:
-#    endif
-#    if ANALOG_DISABLE_TOGGLE_IN_GAMING_MODE
+#        endif
+#        if ANALOG_DISABLE_TOGGLE_IN_GAMING_MODE
         case AKM_TOGGLE:
-#    endif
-#    if ANALOG_DISABLE_GAMEPAD_IN_GAMING_MODE
+#        endif
+#        if ANALOG_DISABLE_GAMEPAD_IN_GAMING_MODE
         case AKM_GAMEPAD:
-#    endif
+#        endif
             return analog_matrix_is_gaming_mode() ? analog_matrix_base_mode(row, col) : mode;
-
         default:
             return mode;
     }
 }
-#else
+#    else
 static inline uint8_t analog_matrix_effective_mode(uint8_t row, uint8_t col, uint8_t mode) {
     (void)row;
     (void)col;
     return mode;
 }
+#    endif
 #endif
 
 static uint8_t convert_to_travel(uint8_t row, uint8_t col, uint16_t value) {
@@ -288,7 +363,12 @@ static uint8_t convert_to_travel(uint8_t row, uint8_t col, uint16_t value) {
     if (x < 0 || x > REF_ZERO_TRAVEL) return 0;
 
 #if TOP_OUT_DEAD_ZONE_GAMING || TOP_OUT_DEAD_ZONE_TYPING
-    const uint8_t top_out_deadzone = analog_matrix_is_gaming_mode() ? TOP_OUT_DEAD_ZONE_GAMING : TOP_OUT_DEAD_ZONE_TYPING;
+    const uint8_t top_out_deadzone =
+#if ANALOG_RUNTIME_CONFIG_CACHE
+        analog_runtime_top_out_deadzone;
+#else
+        analog_matrix_is_gaming_mode() ? TOP_OUT_DEAD_ZONE_GAMING : TOP_OUT_DEAD_ZONE_TYPING;
+#endif
     if (x > REF_ZERO_TRAVEL - top_out_deadzone) return 0;
     x += top_out_deadzone;
 #endif
@@ -317,7 +397,30 @@ static inline uint8_t scale_travel_u8(uint8_t v) {
 }
 
 static inline uint8_t analog_raw_noise_filter(void) {
+#if ANALOG_RUNTIME_CONFIG_CACHE
+    return analog_runtime_raw_noise_filter;
+#else
     return analog_matrix_is_gaming_mode() ? ANALOG_RAW_NOISE_FILTER_GAMING : ANALOG_RAW_NOISE_FILTER_TYPING;
+#endif
+}
+
+static inline uint8_t analog_raw_noise_filter_for_key(uint8_t row, uint8_t col) {
+#if ANALOG_STARTUP_NOISE_FLOOR_ENABLE
+    const bool gaming =
+#    if ANALOG_RUNTIME_CONFIG_CACHE
+        analog_runtime_gaming_mode;
+#    else
+        analog_matrix_is_gaming_mode();
+#    endif
+    if (gaming) {
+        const matrix_row_t bit = (matrix_row_t)1 << col;
+        if (startup_noise_valid_mask[row] & bit) return startup_noise_filter[row][col];
+    }
+#else
+    (void)row;
+    (void)col;
+#endif
+    return analog_raw_noise_filter();
 }
 
 void update_key_config(uint8_t row, uint8_t col) {
@@ -331,16 +434,10 @@ void update_key_config(uint8_t row, uint8_t col) {
     p_key->r = row;
     p_key->c = col;
 
-    // Update basic mode
-    if (p_key_cfg->mode == AKM_GLOBAL)
-        p_key->mode = cur_prof->global.mode;
-    else
-        p_key->mode = p_key_cfg->mode;
-
-    //  Override mode if advance mode setting exists
-    if (p_key_cfg->adv_mode != 0) {
-        p_key->mode = p_key_cfg->adv_mode;
-    }
+    // Update basic mode. base_mode se conserva para resolver una sola vez el
+    // fallback de modos avanzados en Gaming cuando la cache V4 esta activa.
+    const uint8_t base_mode = p_key_cfg->mode == AKM_GLOBAL ? cur_prof->global.mode : p_key_cfg->mode;
+    p_key->mode = base_mode;
 
     // Update actuaction point
     if (p_key_cfg->act_pt == 0)
@@ -349,7 +446,12 @@ void update_key_config(uint8_t row, uint8_t col) {
         p_key->regular.actn_pt = p_key_cfg->act_pt;
 
     // Update deactuaction point
-    const bool gaming_mode = analog_matrix_is_gaming_mode();
+    const bool gaming_mode =
+#if ANALOG_RUNTIME_CONFIG_CACHE
+        analog_runtime_gaming_mode;
+#else
+        analog_matrix_is_gaming_mode();
+#endif
     uint8_t    static_hysteresis = gaming_mode ? STATIC_HYSTERESIS_GAMING : STATIC_HYSTERESIS_TYPING;
 
 #if ANALOG_ADAPTIVE_SHALLOW_HYSTERESIS_GAMING
@@ -395,15 +497,46 @@ void update_key_config(uint8_t row, uint8_t col) {
     // curita sobra. Bonus: se ahorra la llamada a analog_matrix_effective_mode()
     // que la condicion de restauracion hacia en cada reconfiguracion de tecla.
     if (p_key_cfg->adv_mode == AKM_DKS && p_key_cfg->okmc_idx < OKMC_COUNT) {
+        p_key->mode = AKM_DKS;
         p_key->okmc_idx = p_key_cfg->okmc_idx;
+#if ANALOG_GAME_CONTROLLER_SUPPORT
     } else if (p_key_cfg->adv_mode == AKM_GAMEPAD && p_key_cfg->js_axis < GC_BUTTON_MAX && p_key_cfg->js_axis != GC_MAX) {
+        p_key->mode = AKM_GAMEPAD;
         p_key->js_axis = p_key_cfg->js_axis;
+#endif
     } else if (p_key_cfg->adv_mode == AKM_TOGGLE) {
+        p_key->mode = AKM_TOGGLE;
         p_key->hold = 0;
     }
+
+#if ANALOG_RUNTIME_CONFIG_CACHE
+    p_key->effective_mode = p_key->mode;
+    if (analog_runtime_gaming_mode) {
+        switch (p_key->mode) {
+#    if ANALOG_DISABLE_OKMC_IN_GAMING_MODE
+            case AKM_DKS:
+#    endif
+#    if ANALOG_DISABLE_TOGGLE_IN_GAMING_MODE
+            case AKM_TOGGLE:
+#    endif
+#    if ANALOG_DISABLE_GAMEPAD_IN_GAMING_MODE
+            case AKM_GAMEPAD:
+#    endif
+                p_key->effective_mode = base_mode;
+                break;
+            default:
+                break;
+        }
+    }
+#endif
 }
 
 void update_travel_configs(void) {
+#if ANALOG_RUNTIME_CONFIG_CACHE
+    analog_runtime_gaming_mode      = analog_matrix_is_gaming_mode();
+    analog_runtime_raw_noise_filter = analog_runtime_gaming_mode ? ANALOG_RAW_NOISE_FILTER_GAMING : ANALOG_RAW_NOISE_FILTER_TYPING;
+    analog_runtime_top_out_deadzone = analog_runtime_gaming_mode ? TOP_OUT_DEAD_ZONE_GAMING : TOP_OUT_DEAD_ZONE_TYPING;
+#endif
     for (uint8_t r = 0; r < MATRIX_ROWS; r++) {
         for (uint8_t c = 0; c < MATRIX_COLS; c++) {
             update_key_config(r, c);
@@ -414,13 +547,6 @@ void update_travel_configs(void) {
     // se recolocan aqui: es el unico punto que ya corre en boot, cambio de
     // perfil y cambio de modo. No-op textual si ninguna esta compilada.
     analog_matrix_resolve_policy_keys();
-
-    // El histograma resuelve sus teclas aparte y no a traves de
-    // ANALOG_POLICY_NEEDED: vive en los DOS binarios, y colgarlo de ahi
-    // arrastraria el volcado de politica al de torneo. Un segundo barrido del
-    // keymap en un evento de configuracion (boot, perfil, interruptor) no
-    // cuesta nada; acoplar los dos conceptos, si.
-    analog_window_hist_resolve_keys();
 }
 
 static void update_default_travel(void) {
@@ -482,142 +608,28 @@ static void update_scale_factors(void) {
     }
 }
 
-#if ANALOG_CONFIDENT_BOTTOM_OUT_ENABLE
-STATIC_ASSERT(!ANALOG_BOTTOM_OUT_LEARN, "no activar los dos learners de bottom-out a la vez");
-
-static void confident_bottom_restore_baseline(void) {
-    if (!confident_bottom_initialized) return;
-
-    for (uint8_t r = 0; r < MATRIX_ROWS; r++) {
-        for (uint8_t c = 0; c < MATRIX_COLS; c++) {
-            if ((analog_matrix_mask[r] & (0x01U << c)) == 0) continue;
-            calib_values[r][c].full_travel = confident_bottom_baseline[r][c];
-            update_scale_factor(r, c);
-        }
-        confident_bottom_applied[r] = 0;
+bool analog_matrix_eeprom_update(const void *buf, void *addr, size_t len) {
+    if ((uintptr_t)addr + len > EECONFIG_SIZE_ANALOG_MATRIX) {
+        return false;
     }
-}
-
-static void confident_bottom_begin(void) {
-    for (uint8_t r = 0; r < MATRIX_ROWS; r++) {
-        for (uint8_t c = 0; c < MATRIX_COLS; c++) {
-            confident_bottom_baseline[r][c] = calib_values[r][c].full_travel;
-            bottom_out_confidence_reset(&confident_bottom[r][c]);
-        }
-        confident_bottom_applied[r] = 0;
-    }
-    confident_bottom_initialized = true;
-}
-
-static void confident_bottom_suspend_for_calibration(void) {
-    if (!confident_bottom_initialized) return;
-    confident_bottom_restore_baseline();
-    confident_bottom_initialized = false;
-}
-
-bool analog_matrix_confident_bottom_status(uint8_t row, uint8_t col, analog_confident_bottom_status_t *out) {
-    if (!out || row >= MATRIX_ROWS || col >= MATRIX_COLS || (analog_matrix_mask[row] & (0x01U << col)) == 0) return false;
-
-    const bottom_out_confidence_t *state = &confident_bottom[row][col];
-    *out = (analog_confident_bottom_status_t){
-        .baseline_full     = confident_bottom_initialized ? confident_bottom_baseline[row][col] : 0,
-        .active_full       = calib_values[row][col].full_travel,
-        .candidate_full    = state->candidate_full,
-        .sample_min        = state->sample_min,
-        .sample_max        = state->sample_max,
-        .completed_presses = state->completed_presses,
-        .rejected_windows  = state->rejected_windows,
-        .sample_count      = state->sample_count,
-        .initialized       = confident_bottom_initialized,
-        .ready             = state->ready,
-        .applied           = (confident_bottom_applied[row] & (0x01U << col)) != 0,
-    };
+    uint8_t *dst = (uint8_t *)addr + EECONFIG_BASE_ANALOG_MATRIX;
+    eeprom_update_block(buf, dst, len);
     return true;
 }
 
-bool analog_matrix_confident_bottom_apply_key(uint8_t row, uint8_t col) {
-    // La orden se da en modo Win, se verifica y luego se entra a Gaming. No
-    // cambiar la escala a mitad de una partida por accidente.
-    if (!confident_bottom_initialized || analog_matrix_is_gaming_mode() || row >= MATRIX_ROWS || col >= MATRIX_COLS || (analog_matrix_mask[row] & (0x01U << col)) == 0) return false;
-
-    const bottom_out_confidence_t *state = &confident_bottom[row][col];
-    if (!state->ready || state->candidate_full < VALID_ANALOG_RAW_VALUE_MIN || state->candidate_full >= calib_values[row][col].zero_travel) return false;
-
-    calib_values[row][col].full_travel = state->candidate_full;
-    update_scale_factor(row, col);
-    confident_bottom_applied[row] |= 0x01U << col;
-    return true;
-}
-
-uint8_t analog_matrix_confident_bottom_revert(void) {
-    if (!confident_bottom_initialized) return 0;
-
-    uint8_t reverted = 0;
-    for (uint8_t r = 0; r < MATRIX_ROWS; r++) {
-        matrix_row_t applied = confident_bottom_applied[r];
-        for (uint8_t c = 0; c < MATRIX_COLS; c++) {
-            if ((applied & (0x01U << c)) == 0) continue;
-            calib_values[r][c].full_travel = confident_bottom_baseline[r][c];
-            update_scale_factor(r, c);
-            if (reverted != UINT8_MAX) reverted++;
-        }
-        confident_bottom_applied[r] = 0;
-    }
-    return reverted;
-}
-
-void analog_matrix_confident_bottom_clear(void) {
-    if (!confident_bottom_initialized) return;
-    for (uint8_t r = 0; r < MATRIX_ROWS; r++)
-        for (uint8_t c = 0; c < MATRIX_COLS; c++) bottom_out_confidence_reset(&confident_bottom[r][c]);
-}
-#endif
-
-void analog_matrix_eeprom_update(const void *buf, void *addr, size_t len) {
-    addr += EECONFIG_BASE_ANALOG_MATRIX;
-    eeprom_update_block(buf, addr, len);
-}
-
-// Removed save_calibration_value as it is now handled asynchronously
-
-static void save_calibration_values(void) {
-    if (calibrated) {
-        uint8_t invalid_calibration = 0;
-        bool    flag_invalidated    = true;
-
-        // Treat the external EEPROM flag as a commit marker: invalidate it,
-        // write the payload, then mark it valid again. If either write fails,
-        // the next boot will not trust stale calibration data.
-        if (eeprom_calibrated) {
-            flag_invalidated = he_eeprom_write_block(&invalid_calibration, (void *)(EXTERNAL_EEPROM_OFFSET + OFFSET_CALIBRATION), 1);
-            if (flag_invalidated) {
-                eeprom_calibrated = invalid_calibration;
-            }
-        }
-
-        if (flag_invalidated &&
-            he_eeprom_write_block(saved_calib_values, (void *)(EXTERNAL_EEPROM_OFFSET + OFFSET_CALIBRATED_DATA_START), sizeof(saved_calib_values)) &&
-            he_eeprom_write_block(&calibrated, (void *)(EXTERNAL_EEPROM_OFFSET + OFFSET_CALIBRATION), 1)) {
-            eeprom_calibrated = calibrated;
-        }
-    } else {
-        if (eeprom_calibrated != calibrated) {
-            if (he_eeprom_write_block(&calibrated, (void *)(EXTERNAL_EEPROM_OFFSET + OFFSET_CALIBRATION), 1)) {
-                eeprom_calibrated = calibrated;
-            }
-        }
-    }
-
-    // Save a copy to emulate EEPROM
+/* The internal EEPROM mirror is committed only after the external marker has
+ * been restored.  Use the same stable snapshot that was sent to the external
+ * device so a later runtime update cannot create a mixed payload. */
+static void commit_calibration_snapshot(const calibrated_value_t *snapshot, uint8_t snapshot_calibrated) {
     if (!eeconfig_is_kb_datablock_valid()) eeprom_update_dword(EECONFIG_KEYBOARD, (EECONFIG_KB_DATA_VERSION));
 
-    if (calibrated) {
+    if (snapshot_calibrated) {
         uint8_t invalid_calibration = 0;
         analog_matrix_eeprom_update(&invalid_calibration, OFFSET_CALIBRATION, 1);
-        analog_matrix_eeprom_update(saved_calib_values, (uint8_t *)OFFSET_CALIBRATED_DATA_START, sizeof(saved_calib_values));
-        analog_matrix_eeprom_update(&calibrated, OFFSET_CALIBRATION, 1);
+        analog_matrix_eeprom_update(snapshot, (uint8_t *)OFFSET_CALIBRATED_DATA_START, sizeof(calibration_save_snapshot));
+        analog_matrix_eeprom_update(&snapshot_calibrated, OFFSET_CALIBRATION, 1);
     } else {
-        analog_matrix_eeprom_update(&calibrated, OFFSET_CALIBRATION, 1);
+        analog_matrix_eeprom_update(&snapshot_calibrated, OFFSET_CALIBRATION, 1);
     }
 
     update_default_travel();
@@ -740,6 +752,15 @@ static bool calibrate(void) {
                 }
             }
 
+#if ANALOG_STARTUP_NOISE_FLOOR_ENABLE
+        // Per-key acceptance: one held/invalid key must not discard good noise
+        // measurements from the rest of the Hall matrix. Each key still needs
+        // an independent plausible-release check before becoming adaptive.
+        if (cali_state == CALIB_ZERO_TRAVEL_POWER_ON) {
+            analog_capture_startup_noise_floor();
+        }
+#endif
+
         if (cali_state == CALIB_ZERO_TRAVEL_MANUAL) {
             cali_state = CALIB_FULL_TRAVEL_MANUAL;
         } else if (valid && (calibrated & CALI_ZERO_TRAVEL) == 0) {
@@ -751,10 +772,29 @@ static bool calibrate(void) {
             update = true;
         }
 
-        if (valid)
+        if (valid) {
             calibrated |= CALI_ZERO_TRAVEL;
-        else
+        } else if (cali_state == CALIB_ZERO_TRAVEL_POWER_ON && power_on_calibration_retries < ANALOG_POWER_ON_CALIBRATION_RETRY_COUNT) {
+            /* A key can still be settling or physically held when Windows
+             * brings USB up. Retry a complete release window instead of
+             * accepting a bad baseline or aborting calibration permanently. */
+            power_on_calibration_retries++;
+            cur_calib = 0;
+            memset(calibrate_values, 0, sizeof(calibrate_values));
+            memset(manual_calib_zero_invalid, 0, sizeof(manual_calib_zero_invalid));
+            /* The validation above may have updated otherwise-good keys before
+             * discovering the bad one. Never let that partial window become
+             * the baseline used by the next attempt. */
+            memcpy(calib_values, saved_calib_values, sizeof(calib_values));
+            update_scale_factors();
+            return false;
+        } else {
+            /* Bounded fallback: retain the last known-good/default calibration
+             * and let the startup guard decide when reports may be emitted. */
+            memcpy(calib_values, saved_calib_values, sizeof(calib_values));
+            update_scale_factors();
             cali_state = CALIB_OFF;
+        }
     } else if (cali_state == CALIB_SAVE_AND_EXIT) {
         if (last_cali_state == CALIB_FULL_TRAVEL_MANUAL) {
             update = true;
@@ -770,7 +810,13 @@ static bool calibrate(void) {
     }
 
     if (update) {
-        save_calibration_values();
+        /* Apply new values immediately, but defer all persistence.  In
+         * particular, power-on zero calibration is a runtime temperature
+         * correction and must not cause an EEPROM write on every boot. */
+        if (cali_state != CALIB_ZERO_TRAVEL_POWER_ON) request_calibration_save();
+        update_default_travel();
+        update_travel_configs();
+        update_scale_factors();
 
         switch (cali_state) {
             case CALIB_ZERO_TRAVEL_POWER_ON:
@@ -884,10 +930,11 @@ void auto_caliration_check(uint8_t row, uint8_t col, uint16_t value) {
                     calib_values[row][col].full_travel = p->value.full_travel + BOTTOM_JITTER;
 
                     if (abs(saved_calib_values[row][col].zero_travel - calib_values[row][col].zero_travel) > 15 || abs(saved_calib_values[row][col].full_travel - calib_values[row][col].full_travel) > 50) {
-                        /* Save */
+                        /* Persist later from housekeeping; this path runs for
+                         * every ADC sample and must remain scan-safe. */
                         saved_calib_values[row][col].zero_travel = calib_values[row][col].zero_travel;
                         saved_calib_values[row][col].full_travel = calib_values[row][col].full_travel;
-                        calibration_dirty = true;
+                        request_calibration_save();
                     } else {
                         calib_values[row][col].zero_travel = saved_calib_values[row][col].zero_travel;
                         calib_values[row][col].full_travel = saved_calib_values[row][col].full_travel;
@@ -972,18 +1019,20 @@ void analog_matrix_eeconfig_init(void) {
         update_travel_configs();
         update_scale_factors();
         auto_calibration_init();
-        cali_state = CALIB_ZERO_TRAVEL_POWER_ON;
+        begin_power_on_calibration();
         return;
     }
     memset(buf, 0, EECONFIG_SIZE_ANALOG_MATRIX);
 
     eeprom_read_block(buf, (void *)EECONFIG_BASE_ANALOG_MATRIX, EECONFIG_SIZE_ANALOG_MATRIX);
 
-    // Load curve points
+#if ANALOG_GAME_CONTROLLER_SUPPORT
+    // Load curve points / game-controller mode only in builds that expose it.
     point_t curve[CURVE_POINTS_COUNT];
     memcpy(curve, buf + OFFSET_CURVE_PTS_START, CURVE_POINTS_COUNT * SIZE_OF_POINT_T);
     game_controller_curve_init(curve);
     game_controller_mode_init(buf[OFFSET_GAME_CONTROLLER_MODE_START]);
+#endif
 
     // Load calibration data
     calibrated = buf[OFFSET_CALIBRATION];
@@ -1056,7 +1105,7 @@ void analog_matrix_eeconfig_init(void) {
     update_scale_factors();
 
     auto_calibration_init();
-    cali_state = CALIB_ZERO_TRAVEL_POWER_ON;
+    begin_power_on_calibration();
 
     free(buf);
 }
@@ -1066,6 +1115,13 @@ void analog_matrix_init(void) {
 
     analog_matrix_eeconfig_init();
 
+    calibration_save_pending       = false;
+    calibration_save_retry_wait    = false;
+    calibration_save_requested_at  = 0;
+    calibration_save_generation    = 0;
+    calibration_save_attempt_generation = 0;
+    calibration_save_active        = false;
+    memset(&calibration_save_transaction, 0, sizeof(calibration_save_transaction));
     cur_calib = 0;
     memset(calibrate_values, 0, MATRIX_ROWS * MATRIX_COLS * CAL_SAMPL_CNT * sizeof(calibrate_values[0][0][0]));
 
@@ -1074,21 +1130,62 @@ void analog_matrix_init(void) {
         matrix_scan();
 }
 
-bool update_raw_value(uint8_t row, uint8_t col, uint16_t value) {
-    if (value < VALID_ANALOG_RAW_VALUE_MIN || value > VALID_ANALOG_RAW_VALUE_MAX) return false;
+bool analog_matrix_calibrating(void) {
+    return cali_state != CALIB_OFF;
+}
+
+void update_raw_value(uint8_t row, uint8_t col, uint16_t value) {
+    static uint8_t invalid_adc_count[MATRIX_ROWS][MATRIX_COLS];
+
+    if (value < VALID_ANALOG_RAW_VALUE_MIN || value > VALID_ANALOG_RAW_VALUE_MAX) {
+        // Descartar muestras transitorias fuera de rango. Si persisten muestras
+        // invalidas consecutivas en una tecla activa, liberarla de forma segura
+        // para prevenir teclas atascadas (ghost presses) ante fallo o ruido de sensor.
+        if (analog_matrix_get_key_state(row, col)) {
+            if (++invalid_adc_count[row][col] >= 8) {
+                analog_key_t *k = &analog_key_matrix[row][col];
+                k->state        = AKS_REGULAR_RELEASED;
+                k->travel       = 0;
+                k->last_travel  = 0;
+                k->vel_ema      = 0;
+                invalid_adc_count[row][col] = 0;
+            }
+        }
+        return;
+    }
+    invalid_adc_count[row][col] = 0;
 
     if (cali_state) {
         calibrate_values[row][col][cur_calib] = value;
         analog_key_matrix[row][col].value     = value; // for debug
-        return false;
+        return;
     }
+
+#if ANALOG_STARTUP_GUARD_ENABLE
+    /* During the post-init warm-up, keep tracking a plausible sensor value but
+     * do not let a transient sample advance any trigger FSM or virtual output.
+     * Reset last_travel so a key held through the guard is evaluated normally
+     * on the first released scan. */
+    if (analog_matrix_startup_quiet()) {
+        analog_key_t *k = &analog_key_matrix[row][col];
+        k->last_val     = 0;
+        k->value        = value;
+        k->travel       = convert_to_travel(row, col, value);
+        k->last_travel  = 0;
+        k->state        = AKS_REGULAR_RELEASED;
+        k->hold         = 0;
+        k->vel_ema      = 0;
+        return;
+    }
+#endif
+
 #if ANALOG_AUTO_CALIBRATION_ENABLE
     auto_caliration_check(row, col, value);
 #endif
 
     analog_key_t *k = &analog_key_matrix[row][col];
 
-    const uint8_t raw_noise_filter = analog_raw_noise_filter();
+    const uint8_t raw_noise_filter = analog_raw_noise_filter_for_key(row, col);
     if (raw_noise_filter) {
         const uint16_t last_val = k->last_val;
         const uint16_t delta    = value > last_val ? value - last_val : last_val - value;
@@ -1107,19 +1204,13 @@ bool update_raw_value(uint8_t row, uint8_t col, uint16_t value) {
                 k->vel_ema -= vel_dec;
             }
 #endif
-            return false;
+            return;
         }
     }
 
     k->last_val = value;
     k->value    = value;
     k->travel   = convert_to_travel(row, col, value);
-
-#if ANALOG_CONFIDENT_BOTTOM_OUT_ENABLE
-    if (confident_bottom_initialized) {
-        bottom_out_confidence_observe(&confident_bottom[row][col], value, k->travel, confident_bottom_baseline[row][col]);
-    }
-#endif
 
 #if ANALOG_PREDICTIVE_ACTUATION_IN_GAMING_MODE
     // EMA del delta descendente por scan (velocidad del dedo). Solo crece para
@@ -1137,7 +1228,7 @@ bool update_raw_value(uint8_t row, uint8_t col, uint16_t value) {
     }
 #endif
 
-    if (k->travel == k->last_travel) return false;
+    if (k->travel == k->last_travel) return;
 
     // (1-ago) Movido DEBAJO del early return. Estaba encima, asi que se calculaba
     // para CADA tecla y CADA barrido solo para tirarlo: `mode` unicamente se usa
@@ -1147,43 +1238,46 @@ bool update_raw_value(uint8_t row, uint8_t col, uint16_t value) {
     // a analog_matrix_base_mode(), que a su vez llama a profile_get_current(),
     // funcion externa que el compilador no puede demostrar libre de efectos y
     // por tanto probablemente no hundia por si solo.
-    const uint8_t mode = analog_matrix_effective_mode(row, col, k->mode);
-
-    bool ret = false;
+    const uint8_t mode =
+#if ANALOG_RUNTIME_CONFIG_CACHE
+        k->effective_mode;
+#else
+        analog_matrix_effective_mode(row, col, k->mode);
+#endif
 
     switch (mode) {
         case AKM_RAPID:
-            ret = rapid_trigger_action(k);
+            rapid_trigger_action(k);
             break;
         case AKM_DKS:
-            ret = okmc_action(k);
+            okmc_action(k);
             break;
+#if ANALOG_GAME_CONTROLLER_SUPPORT
         case AKM_GAMEPAD:
-#if defined(XINPUT_ENABLE)
-#    if defined(JOYSTICK_ENABLE)
+#    if defined(XINPUT_ENABLE)
+#        if defined(JOYSTICK_ENABLE)
             if (game_controller_xinput_enabled())
-#    endif
-                ret = xinput_update(k);
+#        endif
+                xinput_update(k);
 
-#    if defined(JOYSTICK_ENABLE)
+#        if defined(JOYSTICK_ENABLE)
             else
+#        endif
 #    endif
-#endif
-#ifdef JOYSTICK_ENABLE
-                ret = joystick_update(k);
-#endif
+#    ifdef JOYSTICK_ENABLE
+                joystick_update(k);
+#    endif
             break;
+#endif
         case AKM_TOGGLE:
-            ret = toggle_action(k);
+            toggle_action(k);
             break;
         default:
-            ret = regular_trigger_action(k);
+            regular_trigger_action(k);
             break;
     }
 
     k->last_travel = k->travel;
-
-    return ret;
 }
 
 uint8_t analog_matrix_get_key_mode(uint8_t row, uint8_t col) {
@@ -1193,16 +1287,24 @@ uint8_t analog_matrix_get_key_mode(uint8_t row, uint8_t col) {
 bool analog_matrix_get_key_state(uint8_t row, uint8_t col) {
     analog_key_t *k = &analog_key_matrix[row][col];
 
-    switch (analog_matrix_effective_mode(row, col, k->mode)) {
+    switch (
+#if ANALOG_RUNTIME_CONFIG_CACHE
+        k->effective_mode
+#else
+        analog_matrix_effective_mode(row, col, k->mode)
+#endif
+    ) {
         case AKM_REGULAR: // fall through
             return (k->state == AKS_REGULAR_PRESSED);
 
         case AKM_RAPID:
             return (k->state == AKS_REGULAR_PRESSED || k->state == AKS_RAPID_PRESSED);
 
+#if ANALOG_GAME_CONTROLLER_SUPPORT
         case AKM_GAMEPAD:
             return (game_controller_type_enabled() && k->state == AKS_REGULAR_PRESSED);
 
+#endif
         case AKM_TOGGLE:
             return k->hold;
 
@@ -1265,14 +1367,14 @@ bool get_realtime_travel(uint8_t *data) {
 
 #if ANALOG_BOTTOM_OUT_LEARN
 /* Only-grow bottom-out learning (deeper raw ADC = lower value). Reads the
- * filtered raw values already produced by the scan; never runs in the scan
- * itself. A learned value only replaces the current one when it is deeper by
- * at least ANALOG_BOTTOM_OUT_LEARN_EPSILON, clamped to the valid sensor range,
- * so noise or a corrupt sample can never shrink the dynamic range. */
+ * filtered raw values already produced by the scan. It runs from housekeeping,
+ * never from the scan itself. A learned value only replaces the current one
+ * when it is deeper by at least ANALOG_BOTTOM_OUT_LEARN_EPSILON, clamped to the
+ * valid sensor range, so noise or a corrupt sample can never shrink the dynamic
+ * range. */
 static void bottom_out_learn_task(void) {
-    // analog_matrix_task() corre dentro del barrido de matriz (hot path), no
-    // en housekeeping: limitar el aprendizaje a una pasada cada 50 ms para no
-    // alargar el barrido (medido: la pasada completa cuesta ~10-15 us).
+    // Limitar el aprendizaje a una pasada cada 50 ms para acotar el trabajo de
+    // housekeeping (la pasada completa cuesta ~10-15 us).
     static uint32_t last_learn = 0;
     if (timer_elapsed32(last_learn) < 50) return;
     last_learn = timer_read32();
@@ -1290,55 +1392,107 @@ static void bottom_out_learn_task(void) {
                 calib_values[r][c].full_travel       = learned;
                 saved_calib_values[r][c].full_travel = learned;
                 update_scale_factor(r, c);
-                calibration_dirty = true;
+                request_calibration_save();
             }
         }
     }
 }
 #endif
 
-void analog_matrix_task(void) {
-#if ANALOG_CONFIDENT_BOTTOM_OUT_ENABLE
-    // Una calibracion manual/Launcher invalida el snapshot de rollback. Volver
-    // primero al baseline, dejar que Keychron calibre y capturar el nuevo estado
-    // cuando termine. Asi el experimento nunca contamina una calibracion real.
-    if (cali_state != CALIB_OFF) confident_bottom_suspend_for_calibration();
-#endif
+static bool calibration_save_allowed(void) {
+    if (analog_matrix_calibrating()) return false;
+    if (analog_matrix_is_gaming_mode()) return false;
 
+    extern uint32_t last_input_activity_time(void);
+    if (timer_elapsed32(last_input_activity_time()) < ANALOG_CALIBRATION_SAVE_IDLE_MS) return false;
+
+    extern matrix_row_t analog_raw_matrix[MATRIX_ROWS];
+    for (uint8_t i = 0; i < MATRIX_ROWS; i++) {
+        if (analog_raw_matrix[i] != 0) return false;
+    }
+    return true;
+}
+
+static void calibration_save_task(void) {
+    if (!calibration_save_pending && !calibration_save_active) return;
+
+    const uint32_t now = timer_read32();
+
+    if (!calibration_save_active) {
+        if (timer_elapsed32(calibration_save_requested_at) < ANALOG_CALIBRATION_SAVE_DELAY_MS) return;
+        if (!calibration_save_allowed()) return;
+
+        /* This snapshot remains untouched until every page and the final
+         * marker have succeeded.  Runtime calibration may continue updating
+         * saved_calib_values while the cooperative transaction is suspended. */
+        memcpy(calibration_save_snapshot, saved_calib_values, sizeof(calibration_save_snapshot));
+        const uint8_t snapshot_calibrated = calibrated;
+        calibration_save_attempt_generation = calibration_save_generation;
+        he_eeprom_cal_save_begin(&calibration_save_transaction, snapshot_calibrated ? calibration_save_snapshot : NULL, snapshot_calibrated ? sizeof(calibration_save_snapshot) : 0, (const void *)(EXTERNAL_EEPROM_OFFSET + OFFSET_CALIBRATED_DATA_START), (const void *)(EXTERNAL_EEPROM_OFFSET + OFFSET_CALIBRATION), snapshot_calibrated, snapshot_calibrated || eeprom_calibrated != snapshot_calibrated, 0, snapshot_calibrated);
+        calibration_save_active = true;
+    }
+
+    if (calibration_save_retry_wait) {
+        if (timer_elapsed32(calibration_save_requested_at) < ANALOG_CALIBRATION_SAVE_RETRY_MS) return;
+        if (!calibration_save_allowed()) return;
+        he_eeprom_cal_save_retry(&calibration_save_transaction);
+        calibration_save_retry_wait = false;
+    }
+
+    /* The permission gate is checked again for every page/ACK continuation.
+     * A gaming transition or a fresh input therefore pauses the transaction
+     * before the next I2C operation instead of merely blocking its start. */
+    if (!calibration_save_allowed()) return;
+
+    const he_eeprom_cal_save_status_t status = he_eeprom_cal_save_step(&calibration_save_transaction, true, now);
+    if (status == HE_EEPROM_CAL_SAVE_FAILED) {
+        calibration_save_retry_wait   = true;
+        calibration_save_requested_at = timer_read32();
+        return;
+    }
+    if (status != HE_EEPROM_CAL_SAVE_COMPLETE) return;
+
+    const bool snapshot_is_current = calibration_save_attempt_generation == calibration_save_generation;
+    eeprom_calibrated               = calibration_save_transaction.final_marker;
+    calibration_save_active         = false;
+    calibration_save_retry_wait     = false;
+
+    if (snapshot_is_current) {
+        commit_calibration_snapshot(&calibration_save_snapshot[0][0], calibration_save_transaction.final_marker);
+        calibration_save_pending = false;
+    } else {
+        /* A request that arrived during the write remains pending and will
+         * take a fresh snapshot on the next coalescing delay. */
+        calibration_save_requested_at = timer_read32();
+    }
+}
+
+/* Work that must happen before matrix_common compares/debounces raw_matrix.
+ * Keep this function bounded and free of EEPROM/I2C or other deferred output
+ * work. */
+void analog_matrix_scan_task(void) {
     calibrate();
 
-#if ANALOG_CONFIDENT_BOTTOM_OUT_ENABLE
-    if (cali_state == CALIB_OFF && !confident_bottom_initialized) confident_bottom_begin();
-#endif
+    /* SOCD masks raw_matrix and therefore has to run before matrix_scan_custom
+     * returns to QMK's debounce/report path. */
+    socd_action();
+}
+
+/* Work scheduled from the main loop after the matrix scan.  In particular,
+ * EEPROM page writes live here, never in the scan hot path. */
+void analog_matrix_housekeeping_task(void) {
 
 #if ANALOG_BOTTOM_OUT_LEARN
     bottom_out_learn_task();
 #endif
 
-#if ANALOG_AUTO_CALIBRATION_ENABLE || ANALOG_BOTTOM_OUT_LEARN
-    extern uint32_t last_input_activity_time(void);
-    // Skip the (blocking, I2C) EEPROM flush while in gaming mode; the learned
-    // values stay in RAM and get persisted on the next idle window outside it.
-    if (calibration_dirty && !analog_matrix_is_gaming_mode() && timer_elapsed32(last_input_activity_time()) > 1000) {
-        extern matrix_row_t analog_raw_matrix[MATRIX_ROWS];
-        bool has_key = false;
-        for (uint8_t i = 0; i < MATRIX_ROWS; i++) {
-            if (analog_raw_matrix[i] != 0) {
-                has_key = true;
-                break;
-            }
-        }
-        if (!has_key) {
-            save_calibration_values();
-            calibration_dirty = false;
-        }
-    }
-#endif
+    calibration_save_task();
 
     profile_indication_timer_check();
-    socd_action();
 
-    // Drain at most one OKMC action group per scan (see action_okmc.c).
+    // Drain at most one OKMC action group per main-loop turn (see
+    // action_okmc.c). Keeping this out of the scan prevents virtual HID work
+    // from extending the analog deadline.
     extern void okmc_deferred_task(void);
     okmc_deferred_task();
 #ifdef JOYSTICK_ENABLE
@@ -1349,6 +1503,12 @@ void analog_matrix_task(void) {
     extern void xinput_task(void);
     xinput_task();
 #endif
+}
+
+/* Kept for callers in older keymaps. The old all-in-one entry point is now
+ * scan-safe; the deferred half is wired through keychron_task.c. */
+void analog_matrix_task(void) {
+    analog_matrix_scan_task();
 }
 
 static void get_calibrate_state(uint8_t *data) {
@@ -1392,7 +1552,11 @@ static bool get_calibrated_value(uint8_t row, uint8_t col, uint8_t *data) {
 }
 
 void analog_matrix_rx(uint8_t *data, uint8_t length) {
-    if (length < 2 || data[0] != 0xA9) return;
+    // Todos los comandos usan data[2] como primer byte de payload o estado.
+    // Raw HID normal entrega reportes de tamano fijo, pero validar aqui evita
+    // lecturas/escrituras fuera de rango si esta funcion recibe un buffer corto
+    // desde un transporte futuro, un test o un host malformado.
+    if (length < 3 || data[0] != 0xA9) return;
 
     uint8_t cmd     = data[1];
     bool    success = true;
@@ -1405,10 +1569,20 @@ void analog_matrix_rx(uint8_t *data, uint8_t length) {
 
     switch (cmd) {
         case AMC_GET_VERSION:
+            if (length < 5) {
+                success = false;
+                break;
+            }
             data[2] = KC_ANALOG_MATRIX_VERSION & 0xFF;
+            data[3] = 0;
+            data[4] = 0x12; // feature bitmask: resetSingleKey (0x02), gamepadDisable (0x10). DKR and Turbo (bits 2, 3) not supported in profile_set_adv_mode.
             break;
 
         case AMC_GET_PROFILES_INFO:
+            if (length < 8) {
+                success = false;
+                break;
+            }
             data[2] = profile_get_current_index();
             data[3] = PROFILE_COUNT;
             data[4] = PROFILE_SIZE & 0xFF;
@@ -1418,14 +1592,20 @@ void analog_matrix_rx(uint8_t *data, uint8_t length) {
             break;
 
         case AMC_GET_PROFILE_RAW: {
-            uint8_t  index  = data[2];
-            uint16_t offset = (data[4] << 8) | data[3];
-            uint8_t  size   = data[5];
-            if (length < 6 || size > length - 6) {
+            if (length < 6) {
                 success = false;
-            } else {
-                success = profile_get_raw_data(index, offset, size, &data[6]);
+                break;
             }
+            uint8_t  index       = data[2];
+            uint16_t offset      = ((uint16_t)data[4] << 8) | data[3];
+            uint8_t  size        = data[5];
+            uint8_t  max_payload = (length >= 6) ? (length - 6) : 0;
+            uint8_t  copy_size   = (size > max_payload) ? max_payload : size;
+            success = profile_get_raw_data(index, offset, copy_size, &data[6]);
+            if (max_payload > copy_size) {
+                memset(&data[6 + copy_size], 0, max_payload - copy_size);
+            }
+            // Retain data[5] (requested size, e.g. 30) for Keychron Launcher pipe filter compatibility.
         } break;
 
         case AMC_SET_PROFILE_NAME:
@@ -1438,8 +1618,15 @@ void analog_matrix_rx(uint8_t *data, uint8_t length) {
             break;
 
         case AMC_SELECT_PROFILE:
+            if (length < 3) {
+                success = false;
+                break;
+            }
             success = profile_select(data[2], false, true);
             data[2] = success ? 0 : 1;
+            if (length > 3) {
+                data[3] = profile_get_current_index();
+            }
             break;
 
         case AMC_SET_TRAVAL: {
@@ -1489,57 +1676,237 @@ void analog_matrix_rx(uint8_t *data, uint8_t length) {
             break;
 
         case AMC_GET_REALTIME_TRAVEL:
-            success = get_realtime_travel(&data[2]);
+            if (length < 14) {
+                success = false;
+            } else {
+                success = get_realtime_travel(&data[2]);
+            }
             data[2] = success ? 0 : 1;
             break;
 
+        case AMC_RESET_SINGLE_KEY: {
+            uint8_t prof_idx = data[2];
+            if (prof_idx < PROFILE_COUNT && length >= 3 + MATRIX_ROWS * 3) {
+                analog_matrix_profile_t *prof = profile_get(prof_idx);
+                for (uint8_t r = 0; r < MATRIX_ROWS; r++) {
+                    uint32_t mask = 0;
+                    memcpy(&mask, &data[3 + r * 3], 3);
+                    for (uint8_t c = 0; c < MATRIX_COLS; c++) {
+                        if (mask & (1U << c)) {
+                            memset(&prof->key_config[r][c], 0, sizeof(analog_key_config_t));
+                            if (prof_idx == profile_get_current_index()) {
+                                update_key_config(r, c);
+                            }
+                        }
+                    }
+                }
+                data[2] = 0;
+            } else {
+                data[2] = 1;
+            }
+        } break;
+
         case AMC_RESET_PROFILE:
+            if (length < 3) {
+                success = false;
+                break;
+            }
             success = profile_reset(data[2]);
             update_travel_configs();
             data[2] = success ? 0 : 1;
             break;
 
         case AMC_SAVE_PROFILE:
+            if (length < 3) {
+                success = false;
+                break;
+            }
             success = profile_save(data[2]);
+            if (success) {
+                profile_select(data[2], false, true);
+            }
             data[2] = success ? 0 : 1;
+            if (length > 3) {
+                data[3] = profile_get_current_index();
+            }
             break;
 
         case AMC_GET_CURVE:
-            game_controller_get_curve(&data[2]);
+#if ANALOG_GAME_CONTROLLER_SUPPORT
+            if (length < 2 + CURVE_POINTS_COUNT * SIZE_OF_POINT_T) {
+                success = false;
+            } else {
+                success = game_controller_get_curve(&data[2]);
+            }
+#else
+            success = false;
+#endif
             break;
 
         case AMC_SET_CURVE:
+#if ANALOG_GAME_CONTROLLER_SUPPORT
             if (length < 10) {
                 success = false;
             } else {
                 success = game_controller_set_curve((point_t *)&data[2]);
             }
-            data[2] = success ? 0 : 1;
+#else
+            success = false;
+#endif
+            if (length >= 3) data[2] = success ? 0 : 1;
             break;
 
         case AMC_GET_GAME_CONTROLLER_MODE:
-            success = game_controller_mode_get(&data[2]);
-            data[2] = success ? 0 : 1;
+#if ANALOG_GAME_CONTROLLER_SUPPORT
+            if (length < 4) {
+                success = false;
+            } else {
+                success = game_controller_mode_get(&data[2]);
+            }
+#else
+            success = false;
+#endif
+            if (length >= 3) data[2] = success ? 0 : 1;
             break;
 
         case AMC_SET_GAME_CONTROLLER_MODE:
+#if ANALOG_GAME_CONTROLLER_SUPPORT
             success = game_controller_mode_set(data[2]);
-            data[2] = success ? 0 : 1;
+#else
+            success = false;
+#endif
+            if (length >= 3) data[2] = success ? 0 : 1;
             break;
 
         case AMC_CALIBRATE:
+            if (length < 3) {
+                success = false;
+                break;
+            }
             success = set_calibrate(&data[2]);
             data[2] = success ? 0 : 1;
             break;
 
         case AMC_GET_CALIBRATE_STATE:
-            get_calibrate_state(&data[2]);
+            if (length < 4 + MATRIX_ROWS * 3) {
+                success = false;
+            } else {
+                get_calibrate_state(&data[2]);
+            }
             break;
 
         case AMC_GET_CALIBRATED_VALUE:
-            success = get_calibrated_value(data[2], data[3], &data[5]);
-            data[4] = success ? 0 : 1;
+            if (length < 5 + 4 + sizeof(float)) {
+                success = false;
+            } else {
+                success = get_calibrated_value(data[2], data[3], &data[5]);
+            }
+            if (length >= 5) data[4] = success ? 0 : 1;
             break;
+
+        case AMC_GET_AXIS_TYPE:
+            if (length < 5) {
+                success = false;
+                break;
+            }
+            data[2] = 1;  // Standard Magnetic
+            data[3] = 40; // 4.0 mm max travel (40 * 0.1 mm)
+            data[4] = 0;
+            break;
+
+        case AMC_SET_AXIS_TYPE:
+            if (length >= 3) {
+                data[2] = 0;  // Success
+            } else {
+                success = false;
+            }
+            break;
+
+        case AMC_GET_POLL_PHASE: {
+            // Respuesta (LE):
+            //   data[2]      status: 0 = probe activo y datos validos
+            //                        1 = buffer corto
+            //                        2 = binario sin -DUSB_POLL_PHASE_PROBE
+            //   data[3..6]   usb_poll_phase_last_us  (uint32)
+            //   data[7..10]  usb_poll_phase_min_us   (uint32)
+            //   data[11..14] usb_poll_phase_max_us   (uint32)
+            //   data[15..18] usb_poll_phase_count    (uint32)
+            // Entrada: data[2] == 1 => leer y luego resetear min/max/count.
+#if defined(USB_POLL_PHASE_PROBE)
+            extern volatile uint32_t usb_poll_phase_last_us;
+            extern volatile uint32_t usb_poll_phase_min_us;
+            extern volatile uint32_t usb_poll_phase_max_us;
+            extern volatile uint32_t usb_poll_phase_count;
+            if (length < 19) {
+                data[2] = 1;
+                break;
+            }
+            uint8_t  do_reset = data[2];
+            uint32_t last     = usb_poll_phase_last_us;
+            uint32_t vmin     = usb_poll_phase_min_us;
+            uint32_t vmax     = usb_poll_phase_max_us;
+            uint32_t cnt      = usb_poll_phase_count;
+            data[2]  = 0;
+            data[3]  = last & 0xFF; data[4]  = (last >> 8) & 0xFF; data[5]  = (last >> 16) & 0xFF; data[6]  = (last >> 24) & 0xFF;
+            data[7]  = vmin & 0xFF; data[8]  = (vmin >> 8) & 0xFF; data[9]  = (vmin >> 16) & 0xFF; data[10] = (vmin >> 24) & 0xFF;
+            data[11] = vmax & 0xFF; data[12] = (vmax >> 8) & 0xFF; data[13] = (vmax >> 16) & 0xFF; data[14] = (vmax >> 24) & 0xFF;
+            data[15] = cnt  & 0xFF; data[16] = (cnt  >> 8) & 0xFF; data[17] = (cnt  >> 16) & 0xFF; data[18] = (cnt  >> 24) & 0xFF;
+            if (do_reset == 1) {
+                usb_poll_phase_min_us = 0xFFFFFFFFU;
+                usb_poll_phase_max_us = 0;
+                usb_poll_phase_count  = 0;
+            }
+#else
+            data[2] = 2;
+#endif
+        } break;
+
+        case AMC_GET_SCAN_PHASE: {
+            // Respuesta (LE):
+            //   data[2]      status: 0 = OK - 1 = buffer corto - 2 = sin -DUSB_SOF_TIMING_PROBE
+            //   data[3..4]   scan_probe_duration_us       (uint16, ultimo)
+            //   data[5..6]   scan_probe_duration_min_us   (uint16)
+            //   data[7..8]   scan_probe_duration_max_us   (uint16)
+            //   data[9..10]  scan_probe_phase_us          (uint16, ultimo, fin de scan vs SOF)
+            //   data[11..12] scan_probe_phase_min_us      (uint16)
+            //   data[13..14] scan_probe_phase_max_us      (uint16)
+            //   data[15..18] scan_probe_count             (uint32)
+            // Entrada: data[2] == 1 => leer y luego resetear min/max/count.
+#if defined(USB_SOF_TIMING_PROBE)
+            extern volatile uint32_t scan_probe_count;
+            extern volatile uint16_t scan_probe_duration_us;
+            extern volatile uint16_t scan_probe_phase_us;
+            extern volatile uint16_t scan_probe_duration_min_us;
+            extern volatile uint16_t scan_probe_duration_max_us;
+            extern volatile uint16_t scan_probe_phase_min_us;
+            extern volatile uint16_t scan_probe_phase_max_us;
+            if (length < 19) {
+                data[2] = 1;
+                break;
+            }
+            uint8_t  do_reset = data[2];
+            uint16_t d_last = scan_probe_duration_us,  d_min = scan_probe_duration_min_us, d_max = scan_probe_duration_max_us;
+            uint16_t p_last = scan_probe_phase_us,     p_min = scan_probe_phase_min_us,    p_max = scan_probe_phase_max_us;
+            uint32_t cnt    = scan_probe_count;
+            data[2]  = 0;
+            data[3]  = d_last & 0xFF; data[4]  = (d_last >> 8) & 0xFF;
+            data[5]  = d_min  & 0xFF; data[6]  = (d_min  >> 8) & 0xFF;
+            data[7]  = d_max  & 0xFF; data[8]  = (d_max  >> 8) & 0xFF;
+            data[9]  = p_last & 0xFF; data[10] = (p_last >> 8) & 0xFF;
+            data[11] = p_min  & 0xFF; data[12] = (p_min  >> 8) & 0xFF;
+            data[13] = p_max  & 0xFF; data[14] = (p_max  >> 8) & 0xFF;
+            data[15] = cnt & 0xFF; data[16] = (cnt >> 8) & 0xFF; data[17] = (cnt >> 16) & 0xFF; data[18] = (cnt >> 24) & 0xFF;
+            if (do_reset == 1) {
+                scan_probe_duration_min_us = 0xFFFF;
+                scan_probe_duration_max_us = 0;
+                scan_probe_phase_min_us    = 0xFFFF;
+                scan_probe_phase_max_us    = 0;
+                scan_probe_count           = 0;
+            }
+#else
+            data[2] = 2;
+#endif
+        } break;
     }
 
     raw_hid_send(data, length);
@@ -1583,5 +1950,7 @@ void analog_matrix_clear(void) {
 void analog_matrix_clear_advance_keys(void) {
     extern void okmc_clear(void);
     okmc_clear();
+#if ANALOG_GAME_CONTROLLER_SUPPORT
     game_controller_clear();
+#endif
 }

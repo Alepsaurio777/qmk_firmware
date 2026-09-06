@@ -265,8 +265,10 @@ BEGIN = gccversion sizebefore
 # Note the obj.txt depeendency is there to force linking if a source file is deleted
 %.elf: $(OBJ) $(MASTER_OUTPUT)/cflags.txt $(MASTER_OUTPUT)/ldflags.txt $(MASTER_OUTPUT)/obj.txt | $(BEGIN)
 	@$(SILENT) || printf "$(MSG_LINKING) $@" | $(AWK_CMD)
-	$(eval CMD=MAKE=$(MAKE) $(CC) $(ALL_CFLAGS) $(call uniq,$(OBJ)) --output $@ $(LDFLAGS))
+	$(file >$@.objs,$(call uniq,$(OBJ)))
+	$(eval CMD=$(CC) $(ALL_CFLAGS) @$@.objs --output $@ $(LDFLAGS))
 	@$(BUILD_CMD)
+	@rm -f $@.objs
 
 
 define GEN_OBJRULE
@@ -325,13 +327,19 @@ $1/%.a : $1/%.o
 $1/force:
 
 $1/cflags.txt: $1/force
-	echo '$$($1_CFLAGS)' | cmp -s - $$@ || echo '$$($1_CFLAGS)' > $$@
+	$$(file >$$@.tmp,$$($1_CFLAGS))
+	cmp -s $$@.tmp $$@ || cp $$@.tmp $$@
+	rm -f $$@.tmp
 
 $1/cxxflags.txt: $1/force
-	echo '$$($1_CXXFLAGS)' | cmp -s - $$@ || echo '$$($1_CXXFLAGS)' > $$@
+	$$(file >$$@.tmp,$$($1_CXXFLAGS))
+	cmp -s $$@.tmp $$@ || cp $$@.tmp $$@
+	rm -f $$@.tmp
 
 $1/asflags.txt: $1/force
-	echo '$$($1_ASFLAGS)' | cmp -s - $$@ || echo '$$($1_ASFLAGS)' > $$@
+	$$(file >$$@.tmp,$$($1_ASFLAGS))
+	cmp -s $$@.tmp $$@ || cp $$@.tmp $$@
+	rm -f $$@.tmp
 
 $1/compiler.txt: $1/force
 	test -f $$@ || touch $$@
@@ -340,11 +348,15 @@ endef
 
 .PRECIOUS: $(MASTER_OUTPUT)/obj.txt
 $(MASTER_OUTPUT)/obj.txt: $(MASTER_OUTPUT)/force
-	echo '$(OBJ)' | cmp -s - $@ || echo '$(OBJ)' > $@
+	$(file >$@.tmp,$(OBJ))
+	cmp -s $@.tmp $@ || cp $@.tmp $@
+	rm -f $@.tmp
 
 .PRECIOUS: $(MASTER_OUTPUT)/ldflags.txt
 $(MASTER_OUTPUT)/ldflags.txt: $(MASTER_OUTPUT)/force
-	echo '$(LDFLAGS)' | cmp -s - $@ || echo '$(LDFLAGS)' > $@
+	$(file >$@.tmp,$(LDFLAGS))
+	cmp -s $@.tmp $@ || cp $@.tmp $@
+	rm -f $@.tmp
 
 
 # We have to use static rules for the .d files for some reason

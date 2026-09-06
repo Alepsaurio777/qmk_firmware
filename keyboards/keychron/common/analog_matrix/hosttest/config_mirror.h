@@ -13,6 +13,20 @@
 //   2. Este fichero se lee junto al config.h real en la guia de auditoria.
 #pragma once
 
+#ifndef HOSTTEST
+#    define HOSTTEST 1
+#endif
+
+// El binario estable `alex` hereda el cap 240 de k2_he/config.h. La rama
+// `alex_mc189` lo eleva al maximo fisico 245. El Makefile marca esta ultima
+// configuracion con HOSTTEST_MC189_CONFIG; asi el mismo espejo no puede
+// esconder una divergencia entre ambos binarios.
+#if defined(HOSTTEST_MC189_CONFIG)
+#    define ANALOG_CONTINUOUS_RT_REPRESS_MAX_TRAVEL 245
+#else
+#    define ANALOG_CONTINUOUS_RT_REPRESS_MAX_TRAVEL 240
+#endif
+
 // --- Politica de actuacion / histeresis -----------------------------------
 #define STATIC_HYSTERESIS_GAMING 5
 #define STATIC_HYSTERESIS_TYPING 5
@@ -27,6 +41,10 @@
 // --- Whitelists por keycode -------------------------------------------------
 #define ANALOG_CONTINUOUS_RT_KEY1_KEYCODE KC_SPACE
 #define ANALOG_CONTINUOUS_RT_KEY2_KEYCODE KC_LEFT_SHIFT
+#define ANALOG_CONTINUOUS_RT_KEY3_KEYCODE KC_W
+#define ANALOG_CONTINUOUS_RT_KEY4_KEYCODE KC_A
+#define ANALOG_CONTINUOUS_RT_KEY5_KEYCODE KC_S
+#define ANALOG_CONTINUOUS_RT_KEY6_KEYCODE KC_D
 #define ANALOG_PREDICTIVE_RT_KEY3_KEYCODE KC_W
 #define ANALOG_PREDICTIVE_RT_KEY4_KEYCODE KC_A
 #define ANALOG_PREDICTIVE_RT_KEY5_KEYCODE KC_S

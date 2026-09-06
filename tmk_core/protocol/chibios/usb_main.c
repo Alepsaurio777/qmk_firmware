@@ -27,6 +27,9 @@
 #include "usb_descriptor.h"
 #include "usb_driver.h"
 #include "usb_types.h"
+#ifdef USB_HID_DEFERRED_REPORTS
+#    include "usb_deferred.h"
+#endif
 
 #ifdef RAW_ENABLE
 #    include "raw_hid.h"
@@ -178,6 +181,11 @@ void usb_event_queue_task(void) {
 
 /* Handles the USB driver global events. */
 static void usb_event_cb(USBDriver *usbp, usbevent_t event) {
+#ifdef USB_HID_DEFERRED_REPORTS
+    if (event == USB_EVENT_RESET || event == USB_EVENT_UNCONFIGURED || event == USB_EVENT_CONFIGURED || event == USB_EVENT_SUSPEND || event == USB_EVENT_WAKEUP) {
+        usb_deferred_bus_changed();
+    }
+#endif
     switch (event) {
         case USB_EVENT_ADDRESS:
             return;
@@ -346,13 +354,16 @@ static bool usb_requests_hook_cb(USBDriver *usbp) {
 /* Cycle-counter timestamp of the last SOF. Needed by the scan<->poll phase
  * MEASUREMENT (USB_SOF_TIMING_PROBE, debug) AND by the SOF-synchronized scan
  * (ANALOG_SCAN_SOF_SYNC, production). Kept whenever either is active so the
- * tournament build can have SOF sync without the debug instrumentation. */
-#if defined(USB_SOF_TIMING_PROBE) || ANALOG_SCAN_SOF_SYNC
+ * tournament build can have SOF sync without the debug instrumentation.
+ * USB_POLL_PHASE_PROBE also needs this SOF timestamp (it subtracts it from the
+ * IN-complete time), so it is added to the guard to stay self-contained even
+ * if SOF sync is ever turned off. */
+#if defined(USB_SOF_TIMING_PROBE) || defined(USB_POLL_PHASE_PROBE) || ANALOG_SCAN_SOF_SYNC
 volatile uint32_t usb_sof_timing_last_cycles = 0;
 #endif
 
 static __attribute__((unused)) void usb_sof_cb(USBDriver *usbp) {
-#if defined(USB_SOF_TIMING_PROBE) || ANALOG_SCAN_SOF_SYNC
+#if defined(USB_SOF_TIMING_PROBE) || defined(USB_POLL_PHASE_PROBE) || ANALOG_SCAN_SOF_SYNC
     usb_sof_timing_last_cycles = chSysGetRealtimeCounterX();
 #endif
 #if defined(USB_REPORT_INTERVAL_ENABLE)
@@ -482,6 +493,16 @@ __attribute__((weak)) void restart_usb_driver(USBDriver *usbp) {
  * @return false Failure
  */
 bool send_report(usb_endpoint_in_lut_t endpoint, void *report, size_t size) {
+#ifdef USB_HID_DEFERRED_REPORTS
+    if (endpoint == USB_ENDPOINT_IN_KEYBOARD
+#    ifdef SHARED_EP_ENABLE
+        || endpoint == USB_ENDPOINT_IN_SHARED
+#    endif
+#    ifdef RAW_ENABLE
+        || endpoint == USB_ENDPOINT_IN_RAW
+#    endif
+    ) return usb_deferred_send(endpoint, report, size);
+#endif
     return usb_endpoint_in_send(&usb_endpoints_in[endpoint], (uint8_t *)report, size, TIME_MS2I(100), false);
 }
 
@@ -614,7 +635,13 @@ void send_raw_hid(uint8_t *data, uint8_t length) {
 
 void raw_hid_task(void) {
     uint8_t buffer[RAW_EPSIZE];
+#ifdef USB_HID_DEFERRED_REPORTS
+    // One command per turn, with space reserved for its reply. Launcher traffic
+    // cannot monopolize the main loop or overrun a stalled RAW IN endpoint.
+    if (usb_deferred_raw_ready() && receive_report(USB_ENDPOINT_OUT_RAW, buffer, sizeof(buffer))) {
+#else
     while (receive_report(USB_ENDPOINT_OUT_RAW, buffer, sizeof(buffer))) {
+#endif
         raw_hid_receive(RAW_HID_SRC_USB, buffer, sizeof(buffer));
     }
 }

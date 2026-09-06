@@ -32,6 +32,10 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "sendchar.h"
 #include "eeconfig.h"
 #include "action_layer.h"
+#include "action_util.h"
+#ifdef KEYBOARD_REPORT_BATCHING
+#    include "report_batch.h"
+#endif
 #ifdef BOOTMAGIC_ENABLE
 #    include "bootmagic.h"
 #endif
@@ -611,6 +615,13 @@ static bool matrix_task(void) {
 
     const bool process_keypress = should_process_keypress();
 
+#ifdef KEYBOARD_REPORT_BATCHING
+    bool batch_enabled = keyboard_report_batch_enabled() && !get_weak_mods();
+#    ifndef NO_ACTION_ONESHOT
+    batch_enabled = batch_enabled && !get_oneshot_mods() && !get_oneshot_locked_mods() && !is_oneshot_layer_active();
+#    endif
+    keyboard_report_batch_begin(batch_enabled);
+#endif
     for (uint8_t row = 0; row < MATRIX_ROWS; row++) {
         const matrix_row_t current_row = matrix_get_row(row);
         const matrix_row_t row_changes = current_row ^ matrix_previous[row];
@@ -635,6 +646,9 @@ static bool matrix_task(void) {
         matrix_previous[row] = current_row;
     }
 
+#ifdef KEYBOARD_REPORT_BATCHING
+    keyboard_report_batch_end();
+#endif
     return matrix_changed;
 }
 

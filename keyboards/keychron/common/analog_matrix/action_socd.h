@@ -27,3 +27,4 @@ enum {
 };
 
 void socd_update_active_state(void);
+void socd_action(void);

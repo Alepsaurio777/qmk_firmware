@@ -6,13 +6,12 @@ DEBOUNCE_TYPE = none
 MOUSEKEY_ENABLE = no
 LTO_ENABLE = yes
 
-# Diagnostico exclusivo del binario lab. El estable no compila telemetry.c ni
-# conserva sus callbacks/tareas: no basta con dejar el stream apagado en runtime.
-ALEX_TELEMETRY_ENABLE ?= no
-ifeq ($(strip $(ALEX_TELEMETRY_ENABLE)), yes)
-    OPT_DEFS += -DALEX_TELEMETRY_ENABLE
-    SRC += $(ALEX_TELEMETRY_SOURCE)
-endif
+# Ownership/refcount opt-in para alex + alex_lab. QMK stock conserva bitmasks
+# simples; limitar el define a estos keymaps evita alterar set_mods() en otros
+# teclados del arbol.
+OPT_DEFS += -DINPUT_OWNERSHIP_REFCOUNT_ENABLE
+SRC += quantum/report_batch.c
+SRC += tmk_core/protocol/chibios/usb_deferred.c
 
 # Recorte de defaults de QMK sin uso en este teclado (verificado en cflags):
 # grave-esc/space-cadet/magic solo aportaban keycodes que nadie usa.
@@ -22,3 +21,6 @@ endif
 GRAVE_ESC_ENABLE = no
 SPACE_CADET_ENABLE = no
 MAGIC_ENABLE = no
+
+# telemetry.c/h: modulo de diagnostico retirado formalmente; no se compila.
+# Se conserva en disco por si se necesita re-instrumentar en el futuro.

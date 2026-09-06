@@ -17,13 +17,23 @@
 #include "quantum.h"
 #include "keychron_common.h"
 #include "analog_matrix.h"
-#include "game_controller_common.h"
+#if ANALOG_GAME_CONTROLLER_SUPPORT
+#    include "game_controller_common.h"
+#endif
 #include "profile.h"
+#include "profile_sanitize.h"
 #include "action_socd.h"
 #include "keymap_common.h"
 #include "eeconfig.h"
 #include "eeprom.h"
 #include "nvm_eeprom_eeconfig_internal.h"
+#ifdef RAW_ENABLE
+#    include "raw_hid.h"
+#endif
+
+#ifndef DEFAULT_ACTIVE_PROFILE_INDEX
+#    define DEFAULT_ACTIVE_PROFILE_INDEX 1
+#endif
 
 #ifdef ANANLOG_MATRIX
 #    ifndef PROF_KEY_COL_OFFSET
@@ -130,8 +140,10 @@ static uint32_t                 pro_ind_timer  = 0;
 // en default_profiles[] (perfil 1 marca WASD/espacio/LShift/LCtrl como Rapid),
 // que es una tabla de reset y por tanto pisable desde Launcher.
 
-// Weak: un teclado sin afinado por tecla no paga nada y profile_reset() se
-// comporta exactamente como antes. Los define k2_he/ansi/profiles.c.
+// Weak: un teclado sin afinado por tecla/SOCD no paga nada y profile_reset()
+// se comporta como antes. k2_he/ansi/profiles.c define solo el tuning por
+// tecla; SOCD queda deliberadamente sin seed para que Launcher sea la fuente
+// explicita de esa configuracion.
 __attribute__((weak)) const profile_key_tuning_t *profile_key_tuning(uint8_t prof_idx) {
     (void)prof_idx;
     return NULL;
@@ -142,7 +154,7 @@ __attribute__((weak)) const profile_socd_seed_t *profile_socd_seeds(uint8_t prof
     return NULL;
 }
 
-// Siembra el afinado por tecla y los pares SOCD de la tabla de reset,
+// Aplica el afinado por tecla y, si un teclado lo define, pares SOCD de reset,
 // resolviendo los keycodes contra el keymap VIVO. Un solo barrido de la matriz
 // con las listas (cortas) por dentro, mismo patron que
 // analog_matrix_resolve_policy_keys(). Solo corre en un reset de perfil.
@@ -215,6 +227,9 @@ void profile_init(bool reset) {
         // Write default profile setting
         for (uint8_t i = 0; i < PROFILE_COUNT; i++)
             profile_reset(i);
+        current_profile_index = DEFAULT_ACTIVE_PROFILE_INDEX;
+        cur_prof              = &profile[DEFAULT_ACTIVE_PROFILE_INDEX];
+        analog_matrix_eeprom_update(&current_profile_index, (void *)OFFSET_CURRENT_PROFILE, 1);
     } else {
         uint8_t *buf = (uint8_t *)malloc(EECONFIG_SIZE_ANALOG_MATRIX);
         if (!buf) {
@@ -227,7 +242,7 @@ void profile_init(bool reset) {
         eeprom_read_block(buf, (void *)EECONFIG_BASE_ANALOG_MATRIX, EECONFIG_SIZE_ANALOG_MATRIX);
 
         current_profile_index = buf[OFFSET_CURRENT_PROFILE];
-        if (current_profile_index >= PROFILE_COUNT) current_profile_index = 0;
+        if (current_profile_index >= PROFILE_COUNT) current_profile_index = DEFAULT_ACTIVE_PROFILE_INDEX;
 
         cur_prof = &profile[current_profile_index];
 
@@ -235,12 +250,21 @@ void profile_init(bool reset) {
         memcpy(profile, buf + OFFSET_PROFILES_START, PROFILE_SIZE * PROFILE_COUNT);
 
         for (uint8_t i = 0; i < PROFILE_COUNT; i++) {
-            if (profile[i].global.mode == 0) profile[i].global.mode = profile_gobal_mode[i]; // global mode can't be 0
+#if ANALOG_PROFILE_SANITIZER_ENABLE
+            // V4.2.3-A: canonicaliza los campos de control del perfil en RAM antes
+            // de usarlo. No
+            // escribe EEPROM en boot: si hubo corrupcion, el perfil queda seguro
+            // durante la sesion y se persistira normalizado la proxima vez que
+            // profile_save() sea llamado explicitamente.
+            analog_profile_sanitize(&profile[i], profile_gobal_mode[i], DEFAULT_ACTUATION_POINT, profile_default_rt_sen[i], profile_default_rt_sen_rls_get(i));
+#else
+            if (profile[i].global.mode == 0 || profile[i].global.mode > AKM_RAPID) profile[i].global.mode = profile_gobal_mode[i];
 
             // Resotre to default if not in valid range
             if (profile[i].global.act_pt == 0 || profile[i].global.act_pt > 39) profile[i].global.act_pt = DEFAULT_ACTUATION_POINT;
             if (profile[i].global.rpd_trig_sen == 0 || profile[i].global.rpd_trig_sen > 39) profile[i].global.rpd_trig_sen = profile_default_rt_sen[i];
             if (profile[i].global.rpd_trig_sen_deact == 0 || profile[i].global.rpd_trig_sen_deact > 39) profile[i].global.rpd_trig_sen_deact = profile_default_rt_sen_rls_get(i);
+#endif
         }
 
         free(buf);
@@ -273,13 +297,14 @@ bool profile_select(uint8_t prof_idx, bool indication, bool save_eeprom) {
         cur_prof = &profile[prof_idx];
         analog_matrix_clear();
         update_travel_configs();
-
-        if (save_eeprom) {
-            eeprom_update_dword(EECONFIG_KEYBOARD, (EECONFIG_KB_DATA_VERSION));
-            analog_matrix_eeprom_update(&prof_idx, (void *)OFFSET_CURRENT_PROFILE, 1);
-        }
         analog_matrix_clear_advance_keys();
         socd_update_active_state();
+    }
+    if (save_eeprom) {
+        eeprom_update_dword(EECONFIG_KEYBOARD, (EECONFIG_KB_DATA_VERSION));
+        if (!analog_matrix_eeprom_update(&prof_idx, (void *)OFFSET_CURRENT_PROFILE, 1)) {
+            return false;
+        }
     }
     if (indication) {
 #    ifdef LED_MATRIX_ENABLE
@@ -291,6 +316,17 @@ bool profile_select(uint8_t prof_idx, bool indication, bool save_eeprom) {
         pro_ind_timer  = timer_read32();
         prof_ind_state = 0x86;
     }
+
+#ifdef RAW_ENABLE
+    // Notify host/Launcher of profile change so watchOnProfileChange updates UI live
+    uint8_t report[32];
+    memset(report, 0, sizeof(report));
+    report[0] = 0xA9;
+    report[1] = 0x11; // AMC_SELECT_PROFILE
+    report[2] = prof_idx;
+    report[3] = prof_idx;
+    raw_hid_send(report, sizeof(report));
+#endif
 
     return true;
 }
@@ -308,7 +344,7 @@ bool profile_get_raw_data(uint8_t prof_idx, uint16_t offset, uint8_t size, uint8
 
 bool profile_set_traval(uint8_t prof_idx, uint8_t mode, uint8_t act_pt, uint8_t sens, uint8_t rls_sens, bool global, uint32_t row[]) {
     // Check validity
-    if (prof_idx >= PROFILE_COUNT || mode > AKM_RAPID || act_pt > 39 || (global && mode == AKM_GLOBAL)) return false;
+    if (prof_idx >= PROFILE_COUNT || mode > AKM_RAPID || act_pt > 39 || sens > 39 || rls_sens > 39 || (global && mode == AKM_GLOBAL)) return false;
 
     analog_matrix_profile_t *prof = profile_get(prof_idx);
 
@@ -374,11 +410,15 @@ bool profile_set_adv_mode(uint8_t *data) {
             break;
 
         case ADV_MODE_GAME_CONTROLLER:
+#if ANALOG_GAME_CONTROLLER_SUPPORT
             if (index >= GC_BUTTON_MAX) return false;
 
             p_key_cfg->adv_mode = AKM_GAMEPAD;
             p_key_cfg->js_axis  = index;
             break;
+#else
+            return false;
+#endif
 
         case ADV_MODE_TOGGLE:
             p_key_cfg->adv_mode      = AKM_TOGGLE;
@@ -429,12 +469,20 @@ bool profile_save(uint8_t prof_index) {
 
     analog_matrix_profile_t *prof = &profile[prof_index];
 
-    // Sin sello de version aqui: tras el init la version siempre es valida
-    // (analog_matrix_eeconfig_init la sella al FINAL de la migracion), y
-    // sellarla desde aqui rompia la atomicidad — profile_reset(0) llama a
-    // profile_save durante la migracion y sellaba ANTES de que los perfiles
-    // 1 y 2 se escribieran (corte de luz = version valida + perfiles a medias).
-    analog_matrix_eeprom_update(prof, (void *)OFFSET_PROFILES_START + prof_index * sizeof(analog_matrix_profile_t), sizeof(analog_matrix_profile_t));
+#if ANALOG_PROFILE_SANITIZER_ENABLE
+    // Un unico canonicalizador para EEPROM normal, migraciones futuras y datos
+    // que hayan llegado por setters. En datos validos es un no-op.
+    analog_profile_sanitize(prof, profile_gobal_mode[prof_index], DEFAULT_ACTUATION_POINT, profile_default_rt_sen[prof_index], profile_default_rt_sen_rls_get(prof_index));
+#endif
+
+    if (!analog_matrix_eeprom_update(prof, (void *)(OFFSET_PROFILES_START + prof_index * sizeof(analog_matrix_profile_t)), sizeof(analog_matrix_profile_t))) {
+        return false;
+    }
+
+    if (prof_index == profile_get_current_index()) {
+        update_travel_configs();
+        socd_update_active_state();
+    }
 
     return true;
 }
@@ -456,7 +504,13 @@ bool profile_reset(uint8_t prof_index) {
             prof->key_config[r][c].mode     = default_profiles[prof_index][r][c] & 0x3;
             prof->key_config[r][c].adv_mode = (default_profiles[prof_index][r][c] >> 2) & 0x07;
             if (prof->key_config[r][c].adv_mode == AKM_GAMEPAD) {
+#if ANALOG_GAME_CONTROLLER_SUPPORT
                 prof->key_config[r][c].js_axis = default_profiles[prof_index][r][c] >> 5;
+#else
+                // Reserved/legacy mode: strip it from the LAB profile.
+                prof->key_config[r][c].adv_mode = 0;
+                prof->key_config[r][c].adv_mode_data = 0;
+#endif
             }
         }
 
