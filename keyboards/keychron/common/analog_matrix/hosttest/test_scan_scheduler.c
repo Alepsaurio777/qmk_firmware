@@ -105,24 +105,24 @@ static void test_second_call_same_frame_never_runs_again(void) {
 
 static const analog_scan_sof_config_t config_mc189 = {
     .frame_ticks               = 1000,
-    .start_offset_ticks        = 460,
+    .start_offset_ticks        = 430,
     .max_wait_ticks            = 600,
     .stale_after_ticks         = 2000,
     .next_frame_max_wait_ticks = 1400,
 };
 
-static void test_mc189_460_us_offset_keeps_one_per_frame(void) {
+static void test_mc189_430_us_offset_keeps_one_per_frame(void) {
     analog_scan_sof_state_t state = {0};
 
-    /* At frame start (now = 0), target is 460 us */
+    /* At frame start (now = 0), target is 430 us */
     analog_scan_sof_plan_t plan = analog_scan_sof_plan(&state, 0, 0, &config_mc189);
-    expect_plan(plan, ANALOG_SCAN_SOF_WAIT, 460, false, false, "460 mc189 initial offset");
+    expect_plan(plan, ANALOG_SCAN_SOF_WAIT, 430, false, false, "430 mc189 initial offset");
     analog_scan_sof_commit(&state, 0);
 
-    /* Scan finishes near ~900 us. At now = 920 us, next start is at frame 1 + 460 = 1460 us.
-     * Wait should be 1460 - 920 = 540 us. */
-    plan = analog_scan_sof_plan(&state, 920, 0, &config_mc189);
-    expect_plan(plan, ANALOG_SCAN_SOF_WAIT, 540, false, false, "460 mc189 next frame wait");
+    /* Scan finishes near ~981 us. At now = 982 us, next start is at frame 1 + 430 = 1430 us.
+     * Wait should be 1430 - 982 = 448 us. */
+    plan = analog_scan_sof_plan(&state, 982, 0, &config_mc189);
+    expect_plan(plan, ANALOG_SCAN_SOF_WAIT, 448, false, false, "430 mc189 next frame wait");
 }
 
 int main(void) {
@@ -132,7 +132,7 @@ int main(void) {
     test_stale_sof_runs_without_wait();
     test_wrap32bit_is_phase_safe();
     test_second_call_same_frame_never_runs_again();
-    test_mc189_460_us_offset_keeps_one_per_frame();
+    test_mc189_430_us_offset_keeps_one_per_frame();
     puts("OK   scan_scheduler host tests");
     return 0;
 }

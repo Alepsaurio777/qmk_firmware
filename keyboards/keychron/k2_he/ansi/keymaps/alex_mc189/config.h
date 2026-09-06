@@ -98,9 +98,10 @@
 #define STATIC_HYSTERESIS_GAMING 3
 
 // 5. Just-In-Time Scan Alignment (estilo Wooting Tachyon):
-// Inicia el barrido desfasado 460 us del SOF para que concluya a ~920 us,
-// entregando datos con frescura maxima (0 us de edad) justo ante el poll de Windows.
+// Calibrado empiricamente con telemetria en vivo (scan duration = 551 us).
+// Inicia el barrido a 430 us para concluir a ~981 us (justo antes del SOF),
+// asegurando 30 us de margen antes de que Windows realice el poll a los 14 us.
 #undef ANALOG_SCAN_SOF_START_OFFSET_US
-#define ANALOG_SCAN_SOF_START_OFFSET_US 460
+#define ANALOG_SCAN_SOF_START_OFFSET_US 430
 #undef ANALOG_SCAN_SOF_MAX_WAIT_US
 #define ANALOG_SCAN_SOF_MAX_WAIT_US 600
