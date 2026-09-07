@@ -1,0 +1,46 @@
+{
+  "release": "v4.3-tournament-certified",
+  "timestamp": "2026-09-07T01:51:40Z",
+  "target": "keychron/k2_he/ansi:alex_mc189",
+  "mcu": "STM32F401CC",
+  "vid": "0x3434",
+  "pid": "0x0E20",
+  "artifacts": {
+    "bin": {
+      "file": "keychron_k2_he_ansi_alex_mc189.bin",
+      "size_bytes": 90804,
+      "sha256": "c6415aebd024bcb7099d3fafc22bafaf3e5b18b0c19c25164a9965aa0cb19e02"
+    },
+    "elf": {
+      "file": "keychron_k2_he_ansi_alex_mc189.elf",
+      "size_bytes": 151188,
+      "sha256": "af2b5b62152338d63d05230100cf10533ae1cef5651629829998217245bcaa2a"
+    },
+    "hex": {
+      "file": "keychron_k2_he_ansi_alex_mc189.hex",
+      "size_bytes": 164609,
+      "sha256": "841b32ddb3cc6582bbe230db082eef4e03fcb6621da6edaabcdabc3ec97cfff8"
+    }
+  },
+  "telemetry_validated": {
+    "scan_duration_mean_us": 544.1,
+    "scan_duration_min_us": 542,
+    "scan_duration_max_us": 549,
+    "jitter_us": 3.5,
+    "sof_start_offset_us": 430,
+    "phase_end_us": 974.9,
+    "usb_poll_window_us": [
+      12,
+      17
+    ],
+    "margin_to_poll_us": 42.1,
+    "samples_evaluated": 10060
+  },
+  "tests": {
+    "audit_checks": "PASS (5/5 invariants)",
+    "hosttest_rapid_trigger": "PASS (12149 assertions)",
+    "eeprom_cooperative_save": "PASS (110 checks)",
+    "scan_scheduler": "PASS (430 us Laser JIT)",
+    "usb_hid_queue": "PASS"
+  }
+}
